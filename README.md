@@ -12,12 +12,13 @@
   <img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-111111?logo=apple">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.3.9-7C3AED">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.4-7C3AED">
+  <img alt="CI" src="https://github.com/svsvnm/MacResourceMonitor/actions/workflows/ci.yml/badge.svg">
 </p>
 
 Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、磁盘空间分析、安全清理和应用卸载整合到一个 SwiftUI 应用中。主窗口采用 macOS 26 原生 Liquid Glass，关闭窗口后应用仍会留在菜单栏继续采集数据。
 
-> 当前版本：**2.3.9（Build 29）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
+> 当前版本：**2.4（Build 38）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
 
 ## 功能概览
 
@@ -27,6 +28,23 @@ Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、�
 | 接口监测 | USB-C、MagSafe、USB4、Thunderbolt、DisplayPort、USB-PD 和线缆 E-Marker |
 | 存储清理 | 磁盘概览、主要目录排行、500 MB 以上大文件、缓存/日志/Xcode/废纸篓清理 |
 | 应用卸载 | 第三方应用大小排行、Finder 定位、应用本体及精确 Bundle ID 残留移入废纸篓 |
+
+## 2.4 更新
+
+- 性能趋势卡片改用与主页指标卡一致的中性表面，同时保留实体渲染和无动画刷新以避免白条。
+- 系统监控圆环明确显示 CPU/内存较高值对应的“系统负载”；应用卸载页移除无实际比例含义的圆环。
+- 主内容区移除额外顶部偏移，使顶部概览卡与左侧边栏外框严格对齐。
+- 主窗口与菜单栏统一使用中性石墨玻璃卡片，移除按指标和页面主题大面积染色的背景。
+- 导航与主要操作统一采用低饱和钢蓝灰，状态色仅保留在图标、进度条和曲线中。
+- 回退实验性的 AppKit HUD/Popover `behindWindow` Vibrancy，恢复更稳定的 SwiftUI 超薄材质和深色遮罩方案。
+- 保留暂停功能移除、历史曲线单次无动画刷新、固定高度和实体背景，避免同步刷新白条。
+- 保留空间占用、大文件、安全清理和应用卸载列表的稳定实体卡片，避免长列表滚动时出现透明黑块。
+
+## 2.3.10 更新
+
+- 移除主界面和菜单栏中重复且容易造成陈旧数据误判的暂停按钮，监控保持持续运行。
+- 将同一采集周期内的历史数据合并为固定长度、无动画更新，避免曲线在一次刷新中重复重绘。
+- CPU 与内存历史曲线使用固定高度、裁剪边界和稳定实体卡片，修复每 2 秒刷新时 Liquid Glass 重新采样造成的瞬时白条。
 
 ## 2.3.9 更新
 
@@ -112,7 +130,7 @@ Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、�
 
 - **适配器输入功率**：电源适配器当前向整机提供的功率。
 - **电池实际充入功率**：真正进入电池的实时功率。
-- **系统负载**：整机当前消耗的功率。
+- **系统功耗**：整机当前消耗的功率。
 - **USB-PD 协商上限**：端口协商能力，不会被误标为实时充电功率。
 
 未连接电源、已充满或系统未提供对应字段时，界面会显示真实状态或“不可用”，不会使用估算值冒充测量结果。
@@ -173,7 +191,7 @@ Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、�
 ## 菜单栏与窗口行为
 
 - 关闭主窗口不会退出应用，Dock 图标会隐藏，菜单栏监控继续运行。
-- 菜单栏弹窗可重新打开主面板、暂停/继续监控或退出程序。
+- 菜单栏弹窗可重新打开主面板或退出程序。
 - 关闭主窗口不会退出菜单栏监控；需要重新打开时可从菜单栏进入。
 - 只有选择“退出”或按下 `Command + Q` 才会结束进程。
 
@@ -232,6 +250,14 @@ open "/Applications/Mac资源监控.app"
 3. 使用 Swift 编译器链接 SwiftUI、AppKit、IOKit 和 SystemConfiguration。
 4. 对 WhatCable helper 和最终 App 执行本机 ad-hoc 签名。
 
+提交前可运行与 GitHub Actions 相同的完整检查：
+
+```zsh
+./Scripts/ci-check.sh
+```
+
+检查内容包括元数据与 README 版本一致性、Swift 警告即错误类型检查、全新 App Bundle 构建、arm64 架构、资源完整性和代码签名。
+
 验证签名：
 
 ```zsh
@@ -250,6 +276,7 @@ MacResourceMonitor/
 │   ├── AppIcon.iconset/
 │   └── WhatCableHelper/
 ├── Scripts/
+│   ├── ci-check.sh
 │   └── make-rounded-icon.swift
 ├── Sources/
 │   ├── CableMonitor.swift
@@ -284,8 +311,8 @@ MacResourceMonitor/
 
 ## 版本信息
 
-- App 版本：2.3.9
-- Build：29
+- App 版本：2.4
+- Build：38
 - Bundle ID：`io.github.svsvnm.MacResourceMonitor`
 - 最低系统版本：macOS 26.0
 - 构建架构：arm64

@@ -9,6 +9,7 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 HELPERS_DIR="$RESOURCES_DIR/Helpers"
 WHATCABLE_ASSETS="$SCRIPT_DIR/Assets/WhatCableHelper"
 
+rm -rf "$APP_DIR"
 mkdir -p "$EXECUTABLE_DIR" "$RESOURCES_DIR" "$HELPERS_DIR"
 cp "$SCRIPT_DIR/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$SCRIPT_DIR/THIRD_PARTY_NOTICES.md" "$RESOURCES_DIR/THIRD_PARTY_NOTICES.md"
@@ -19,6 +20,7 @@ ditto "$WHATCABLE_ASSETS/WhatCable_WhatCableCore.bundle" "$RESOURCES_DIR/WhatCab
 
 xcrun swiftc \
   -swift-version 5 \
+  -warnings-as-errors \
   -parse-as-library \
   -O \
   -target arm64-apple-macos26.0 \

@@ -753,7 +753,7 @@ struct StorageCleanupView: View {
                 HStack {
                     ZStack {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(color.opacity(0.16))
+                            .fill(InterfacePalette.iconSurface)
                         Image(systemName: symbol)
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(color)
@@ -764,7 +764,7 @@ struct StorageCleanupView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(color)
                         .frame(width: 28, height: 28)
-                        .background(color.opacity(0.10), in: Circle())
+                        .background(InterfacePalette.iconSurface, in: Circle())
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -793,8 +793,12 @@ struct StorageCleanupView: View {
         }
         .buttonStyle(.plain)
         .glassEffect(
-            .clear.tint(color.opacity(0.065)).interactive(),
+            .clear.interactive(),
             in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
+                .stroke(InterfacePalette.cardStroke, lineWidth: 0.75)
         )
         .shadow(color: Color.black.opacity(0.035), radius: 14, y: 6)
     }
@@ -1071,7 +1075,7 @@ struct StorageCleanupView: View {
     private func managementListSymbol(_ symbol: String, color: Color) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(color.opacity(0.12))
+                .fill(InterfacePalette.iconSurface)
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(color)

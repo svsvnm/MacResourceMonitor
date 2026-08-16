@@ -457,10 +457,9 @@ private final class SystemCollector {
 }
 
 private final class MonitorModel: ObservableObject {
-    @Published var snapshot = ResourceSnapshot()
-    @Published var cpuHistory = Array(repeating: 0.0, count: 60)
-    @Published var memoryHistory = Array(repeating: 0.0, count: 60)
-    @Published var isPaused = false
+    private(set) var snapshot = ResourceSnapshot()
+    private(set) var cpuHistory = Array(repeating: 0.0, count: 60)
+    private(set) var memoryHistory = Array(repeating: 0.0, count: 60)
     @Published var isRefreshingCable = false
     @Published var lastCableRefreshAt: Date?
 
@@ -479,17 +478,12 @@ private final class MonitorModel: ObservableObject {
 
     deinit { timer?.invalidate() }
 
-    func togglePause() {
-        isPaused.toggle()
-        if !isPaused { refresh() }
-    }
-
     func refresh(forceCableRefresh: Bool = false) {
         if forceCableRefresh {
             forceCableRefreshPending = true
             isRefreshingCable = true
         }
-        guard (!isPaused || forceCableRefreshPending), !refreshInProgress else { return }
+        guard !refreshInProgress else { return }
         let shouldForceCableRefresh = forceCableRefreshPending
         forceCableRefreshPending = false
         refreshInProgress = true
@@ -497,15 +491,18 @@ private final class MonitorModel: ObservableObject {
             guard let self else { return }
             let next = self.collector.collect(forceCableRefresh: shouldForceCableRefresh)
             DispatchQueue.main.async {
-                self.snapshot = next
-                self.cpuHistory.removeFirst()
-                self.cpuHistory.append(next.cpuPercent)
-                self.memoryHistory.removeFirst()
-                self.memoryHistory.append(next.memoryPercent)
-                self.refreshInProgress = false
-                if shouldForceCableRefresh {
-                    self.isRefreshingCable = false
-                    self.lastCableRefreshAt = next.updatedAt
+                let nextCPUHistory = Array(self.cpuHistory.suffix(59)) + [next.cpuPercent]
+                let nextMemoryHistory = Array(self.memoryHistory.suffix(59)) + [next.memoryPercent]
+                self.objectWillChange.send()
+                withTransaction(Transaction(animation: nil)) {
+                    self.snapshot = next
+                    self.cpuHistory = nextCPUHistory
+                    self.memoryHistory = nextMemoryHistory
+                    self.refreshInProgress = false
+                    if shouldForceCableRefresh {
+                        self.isRefreshingCable = false
+                        self.lastCableRefreshAt = next.updatedAt
+                    }
                 }
                 if self.forceCableRefreshPending {
                     self.refresh()
@@ -532,7 +529,7 @@ private struct MetricCard: View {
             HStack {
                 ZStack {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(color.opacity(0.15))
+                        .fill(InterfacePalette.iconSurface)
                     Image(systemName: symbol)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(color)
@@ -569,11 +566,7 @@ private struct MetricCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: 152, alignment: .topLeading)
-        .glassEffect(
-            .clear.tint(color.opacity(0.055)),
-            in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
-        )
-        .shadow(color: Color.black.opacity(0.035), radius: 14, y: 6)
+        .glassCard()
     }
 }
 
@@ -624,7 +617,8 @@ private struct HistoryChart: View {
                         .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 }
             }
-            .frame(minHeight: 132)
+            .frame(height: 132)
+            .clipped()
             HStack {
                 Text("2 分钟前")
                 Spacer()
@@ -634,7 +628,10 @@ private struct HistoryChart: View {
             .foregroundStyle(.tertiary)
         }
         .padding(18)
-        .glassCard()
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+        .stableDashboardCard(cornerRadius: InterfaceMetrics.cardRadius)
     }
 
     private func chartPath(in size: CGSize, close: Bool) -> Path {
@@ -838,7 +835,7 @@ private struct CablePortCard: View {
             HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(accent.opacity(port.connected ? 0.16 : 0.08))
+                        .fill(InterfacePalette.iconSurface)
                     Image(systemName: symbol)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(accent)
@@ -914,10 +911,7 @@ private struct CablePortCard: View {
         }
         .padding(15)
         .frame(maxWidth: .infinity, minHeight: port.connected ? 178 : 132, alignment: .topLeading)
-        .glassEffect(
-            .clear.tint(accent.opacity(port.connected ? 0.055 : 0.025)),
-            in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
-        )
+        .glassCard()
     }
 
     private func cableDetail(_ label: String, _ value: String, _ symbol: String) -> some View {
@@ -955,12 +949,7 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
     }
 
     var tint: Color {
-        switch self {
-        case .monitor: return .cyan
-        case .ports: return .blue
-        case .cleanup: return .orange
-        case .uninstall: return .purple
-        }
+        InterfacePalette.accent
     }
 
     var subtitle: String {
@@ -988,12 +977,34 @@ enum InterfaceMetrics {
     static let controlRadius: CGFloat = 14
 }
 
+enum InterfacePalette {
+    /// A restrained accent shared by navigation and primary actions.
+    static let accent = Color(red: 0.33, green: 0.40, blue: 0.47)
+    /// Neutral inset used behind glyphs so cards do not read as color swatches.
+    static let iconSurface = Color.primary.opacity(0.060)
+    static let cardStroke = Color.primary.opacity(0.075)
+
+    static func stableSurface(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.070, green: 0.074, blue: 0.080)
+            : Color(nsColor: .controlBackgroundColor)
+    }
+
+    static func stableDashboardSurface(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.235, green: 0.240, blue: 0.250)
+            : Color(red: 0.975, green: 0.975, blue: 0.980)
+    }
+}
+
 struct GlassCardModifier: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
-            .glassEffect(.clear, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .glassEffect(.clear, in: shape)
+            .overlay(shape.stroke(InterfacePalette.cardStroke, lineWidth: 0.75))
             .shadow(color: Color.black.opacity(0.035), radius: 14, y: 6)
     }
 }
@@ -1006,13 +1017,52 @@ struct StableListCardModifier: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                colorScheme == .dark
-                    ? Color(red: 0.055, green: 0.055, blue: 0.060)
-                    : Color(nsColor: .controlBackgroundColor),
+                InterfacePalette.stableSurface(for: colorScheme),
                 in: shape
             )
-            .overlay(shape.stroke(Color.primary.opacity(0.085), lineWidth: 0.75))
+            .overlay(shape.stroke(InterfacePalette.cardStroke, lineWidth: 0.75))
             .clipShape(shape)
+    }
+}
+
+struct StableDashboardCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(InterfacePalette.stableDashboardSurface(for: colorScheme), in: shape)
+            .overlay(shape.stroke(InterfacePalette.cardStroke, lineWidth: 0.75))
+            .clipShape(shape)
+            .shadow(color: Color.black.opacity(0.035), radius: 14, y: 6)
+    }
+}
+
+@MainActor
+private final class TransparentWindowBridgeView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyTransparency()
+    }
+
+    func applyTransparency() {
+        guard let window else { return }
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+    }
+}
+
+private struct WindowTransparencyConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> TransparentWindowBridgeView {
+        TransparentWindowBridgeView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: TransparentWindowBridgeView, context: Context) {
+        nsView.applyTransparency()
     }
 }
 
@@ -1023,6 +1073,10 @@ extension View {
 
     func stableListCard(cornerRadius: CGFloat = 18) -> some View {
         modifier(StableListCardModifier(cornerRadius: cornerRadius))
+    }
+
+    func stableDashboardCard(cornerRadius: CGFloat = InterfaceMetrics.cardRadius) -> some View {
+        modifier(StableDashboardCardModifier(cornerRadius: cornerRadius))
     }
 }
 
@@ -1037,7 +1091,7 @@ private struct SidebarNavigationItem: View {
         if isSelected {
             navigationButton
                 .glassEffect(
-                    .clear.tint(section.tint.opacity(0.18)).interactive(),
+                    .clear.interactive(),
                     in: RoundedRectangle(cornerRadius: InterfaceMetrics.controlRadius, style: .continuous)
                 )
                 .onHover { isHovering = $0 }
@@ -1052,16 +1106,7 @@ private struct SidebarNavigationItem: View {
             HStack(spacing: 11) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    section.tint.opacity(isSelected ? 0.30 : 0.11),
-                                    section.tint.opacity(isSelected ? 0.14 : 0.05)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(InterfacePalette.iconSurface)
                     Image(systemName: section.symbol)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(isSelected ? section.tint : Color.secondary)
@@ -1110,7 +1155,6 @@ private struct DashboardView: View {
                         sectionContent
                     }
                     .padding(.horizontal, 14)
-                    .padding(.top, 38)
                     .padding(.bottom, 20)
                 }
                 .scrollClipDisabled(false)
@@ -1120,6 +1164,7 @@ private struct DashboardView: View {
             .padding(12)
         }
         .frame(minWidth: 1040, idealWidth: 1200, minHeight: 720, idealHeight: 860)
+        .background(WindowTransparencyConfigurator())
     }
 
     @ViewBuilder
@@ -1199,24 +1244,25 @@ private struct DashboardView: View {
 
     private var ambientBackground: some View {
         ZStack {
+            Rectangle().fill(.ultraThinMaterial)
             if colorScheme == .dark {
-                Color.black
+                Color.black.opacity(0.66)
                 LinearGradient(
                     colors: [
-                        selectedSection.tint.opacity(0.040),
+                        Color.white.opacity(0.025),
                         Color.clear,
-                        Color.purple.opacity(0.018)
+                        Color.black.opacity(0.045)
                     ],
                     startPoint: .topTrailing,
                     endPoint: .bottomLeading
                 )
             } else {
+                Color.white.opacity(0.30)
                 LinearGradient(
                     colors: [
-                        Color(nsColor: .windowBackgroundColor),
-                        selectedSection.tint.opacity(0.075),
-                        Color.purple.opacity(0.035),
-                        Color(nsColor: .windowBackgroundColor)
+                        Color.white.opacity(0.10),
+                        Color.clear,
+                        Color.black.opacity(0.025)
                     ],
                     startPoint: .topTrailing,
                     endPoint: .bottomLeading
@@ -1224,7 +1270,6 @@ private struct DashboardView: View {
             }
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.35), value: selectedSection)
     }
 
     private var sidebar: some View {
@@ -1273,12 +1318,12 @@ private struct DashboardView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 7) {
                     Circle()
-                        .fill(model.isPaused ? Color.orange : Color.green)
+                        .fill(Color.green)
                         .frame(width: 7, height: 7)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(model.isPaused ? "监控已暂停" : "Mac 状态在线")
+                        Text("Mac 状态在线")
                             .font(.system(size: 11, weight: .semibold))
-                        Text(model.isPaused ? "点击继续采集数据" : "菜单栏持续监控")
+                        Text("菜单栏持续监控")
                             .font(.system(size: 8))
                             .foregroundStyle(.tertiary)
                     }
@@ -1295,10 +1340,7 @@ private struct DashboardView: View {
                 }
             }
             .padding(15)
-            .glassEffect(
-                .clear.tint(Color.cyan.opacity(0.045)),
-                in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
-            )
+            .glassCard()
         }
         .padding(.horizontal, 17)
         .padding(.top, 46)
@@ -1333,26 +1375,9 @@ private struct DashboardView: View {
     private var contentHeader: some View {
         ZStack(alignment: .trailing) {
             HStack(spacing: 24) {
-                ZStack {
-                    Circle()
-                        .fill(selectedSection.tint.opacity(0.10))
-                    Circle()
-                        .stroke(selectedSection.tint.opacity(0.10), lineWidth: 8)
-                        .padding(8)
-                    Circle()
-                        .trim(from: 0, to: max(0.06, heroProgress))
-                        .stroke(
-                            selectedSection.tint.gradient,
-                            style: StrokeStyle(lineWidth: 8, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(-90))
-                        .padding(8)
-                    Image(systemName: selectedSection.symbol)
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(selectedSection.tint)
+                if selectedSection != .uninstall {
+                    heroIndicator
                 }
-                .frame(width: 100, height: 100)
-                .shadow(color: selectedSection.tint.opacity(0.28), radius: 22)
 
                 VStack(alignment: .leading, spacing: 7) {
                     Text(selectedSection.eyebrow)
@@ -1390,14 +1415,6 @@ private struct DashboardView: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                     HStack(spacing: 8) {
-                        if selectedSection == .monitor {
-                            Button(action: model.togglePause) {
-                                Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
-                                    .frame(width: 16, height: 16)
-                            }
-                            .buttonStyle(.glass)
-                            .help(model.isPaused ? "继续监控" : "暂停监控")
-                        }
                         Button(action: performHeroAction) {
                             Label(heroActionTitle, systemImage: "arrow.clockwise")
                         }
@@ -1410,17 +1427,47 @@ private struct DashboardView: View {
             .padding(24)
         }
         .frame(maxWidth: .infinity, minHeight: 164, alignment: .leading)
-        .glassEffect(
-            .clear.tint(selectedSection.tint.opacity(0.075)),
-            in: RoundedRectangle(cornerRadius: InterfaceMetrics.panelRadius, style: .continuous)
-        )
-        .shadow(color: Color.black.opacity(0.04), radius: 16, y: 7)
+        .glassCard(cornerRadius: InterfaceMetrics.panelRadius)
+    }
+
+    private var heroIndicator: some View {
+        ZStack {
+            Circle()
+                .fill(selectedSection.tint.opacity(0.10))
+            Circle()
+                .stroke(selectedSection.tint.opacity(0.10), lineWidth: 8)
+                .padding(8)
+            Circle()
+                .trim(from: 0, to: max(0.06, heroProgress))
+                .stroke(
+                    selectedSection.tint.gradient,
+                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+                .padding(8)
+
+            if selectedSection == .monitor {
+                VStack(spacing: 1) {
+                    Text("\(Int((heroProgress * 100).rounded()))%")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    Text("系统负载")
+                        .font(.system(size: 8, weight: .semibold))
+                }
+                .foregroundStyle(selectedSection.tint)
+            } else {
+                Image(systemName: selectedSection.symbol)
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(selectedSection.tint)
+            }
+        }
+        .frame(width: 100, height: 100)
+        .shadow(color: selectedSection.tint.opacity(0.28), radius: 22)
     }
 
     private var heroTitle: String {
         switch selectedSection {
         case .monitor:
-            if model.isPaused { return "监控已暂停" }
             if model.snapshot.thermalState != "正常" || model.snapshot.cpuPercent >= 85 || model.snapshot.memoryPercent >= 90 {
                 return "Mac 需要关注"
             }
@@ -1433,7 +1480,7 @@ private struct DashboardView: View {
 
     private var heroStatusDetail: String {
         switch selectedSection {
-        case .monitor: return model.isPaused ? "数据采集已停止" : "后台实时监控"
+        case .monitor: return "后台实时监控"
         case .ports: return "仅检测，不修改端口"
         case .cleanup: return "默认只读，清理前确认"
         case .uninstall: return "应用移入废纸篓"
@@ -1481,7 +1528,7 @@ private struct DashboardView: View {
         case .cleanup:
             return storageModel.diskTotal > 0 ? min(1, Double(storageModel.diskUsed) / Double(storageModel.diskTotal)) : 0.06
         case .uninstall:
-            return min(1, Double(storageModel.installedApplications.count) / 100)
+            return 0
         }
     }
 
@@ -1544,9 +1591,9 @@ private struct MenuBarPanel: View {
                             .font(.system(size: 16, weight: .bold, design: .rounded))
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(model.isPaused ? Color.orange : Color.green)
+                                .fill(Color.green)
                                 .frame(width: 7, height: 7)
-                            Text(model.isPaused ? "监控已暂停" : "实时监控中")
+                            Text("实时监控中")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
@@ -1576,9 +1623,9 @@ private struct MenuBarPanel: View {
                 }
 
                 HStack(spacing: 8) {
-                    compactMenuMetric("CPU", String(format: "%.0f%%", model.snapshot.cpuPercent), .cyan)
-                    compactMenuMetric("内存", String(format: "%.0f%%", model.snapshot.memoryPercent), .purple)
-                    compactMenuMetric("风扇", compactFanSpeed(model.snapshot.fanSpeed), .indigo)
+                    compactMenuMetric("CPU", String(format: "%.0f%%", model.snapshot.cpuPercent))
+                    compactMenuMetric("内存", String(format: "%.0f%%", model.snapshot.memoryPercent))
+                    compactMenuMetric("风扇", compactFanSpeed(model.snapshot.fanSpeed))
                 }
 
                 HStack(spacing: 10) {
@@ -1602,30 +1649,18 @@ private struct MenuBarPanel: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .glassEffect(
-                    .clear.tint(Color.blue.opacity(0.045)),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                )
+                .glassCard(cornerRadius: 14)
 
-                HStack(spacing: 8) {
-                    Button {
-                        NSApp.setActivationPolicy(.regular)
-                        openWindow(id: "dashboard")
-                        NSApp.activate(ignoringOtherApps: true)
-                    } label: {
-                        Label("打开监控面板", systemImage: "macwindow")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .tint(.cyan)
-
-                    Button(action: model.togglePause) {
-                        Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
-                            .frame(width: 16, height: 16)
-                    }
-                    .buttonStyle(.glass)
-                    .help(model.isPaused ? "继续监控" : "暂停监控")
+                Button {
+                    NSApp.setActivationPolicy(.regular)
+                    openWindow(id: "dashboard")
+                    NSApp.activate(ignoringOtherApps: true)
+                } label: {
+                    Label("打开监控面板", systemImage: "macwindow")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.glassProminent)
+                .tint(InterfacePalette.accent)
 
                 HStack {
                     Text("只读监控 · 每 2 秒更新")
@@ -1641,13 +1676,23 @@ private struct MenuBarPanel: View {
             .padding(14)
         }
         .frame(width: 350)
+        .background(WindowTransparencyConfigurator())
     }
 
     private var menuBackground: some View {
         ZStack {
-            colorScheme == .dark ? Color.black : Color(nsColor: .windowBackgroundColor)
+            Rectangle().fill(.ultraThinMaterial)
+            if colorScheme == .dark {
+                Color.black.opacity(0.68)
+            } else {
+                Color.white.opacity(0.32)
+            }
             LinearGradient(
-                colors: [Color.cyan.opacity(colorScheme == .dark ? 0.035 : 0.065), Color.clear, Color.purple.opacity(colorScheme == .dark ? 0.018 : 0.035)],
+                colors: [
+                    Color.white.opacity(colorScheme == .dark ? 0.025 : 0.10),
+                    Color.clear,
+                    Color.black.opacity(colorScheme == .dark ? 0.040 : 0.020)
+                ],
                 startPoint: .topTrailing,
                 endPoint: .bottomLeading
             )
@@ -1677,13 +1722,10 @@ private struct MenuBarPanel: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 106, alignment: .topLeading)
-        .glassEffect(
-            .clear.tint(color.opacity(0.060)),
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-        )
+        .glassCard(cornerRadius: 16)
     }
 
-    private func compactMenuMetric(_ title: String, _ value: String, _ color: Color) -> some View {
+    private func compactMenuMetric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 9, weight: .medium))
@@ -1696,10 +1738,7 @@ private struct MenuBarPanel: View {
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(
-            .clear.tint(color.opacity(0.045)),
-            in: RoundedRectangle(cornerRadius: 13, style: .continuous)
-        )
+        .glassCard(cornerRadius: 13)
     }
 
     private var cableStatusTitle: String {
