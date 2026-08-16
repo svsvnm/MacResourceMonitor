@@ -1,0 +1,578 @@
+"0.2-0.5 mW" = "0,2-0,5 mW";
+"0.5-1 mW" = "0,5-1 mW";
+"1-5 mW" = "1-5 mW";
+"3 A" = "3 A";
+"5 A" = "5 A";
+"5-10 mW" = "5-10 mW";
+"50-200 µW" = "50-200 µW";
+"< 50 µW" = "< 50 µW";
+"> 10 mW" = "> 10 mW";
+"Active %@ cable, %@" = "Cavo attivo %1$@, %2$@";
+"Active cable" = "Cavo attivo";
+"Active cable (VDO 2):" = "Cavo attivo (VDO 2):";
+"Active cable (contains signal-conditioning electronics)" = "Cavo attivo (contiene elettronica di condizionamento segnale)";
+"Alternate Mode Adapter" = "Adattatore modalità alternativa";
+"Both the charger and cable can do more, but the Mac is currently asking for less. This is normal once the battery is mostly full, or when the system is idle." = "Sia il caricatore che il cavo possono fare di più, ma attualmente il Mac chiede di meno. Ciò è normale quando la batteria è quasi carica o quando il sistema non è attivo.";
+"Cable does not advertise an e-marker (basic cable)" = "Il cavo non contiene un e-marker (cavo base)";
+"Cable has an e-marker chip (advertises its capabilities)" = "Il cavo ha un chip e-marker (dichiara le sue capacità)";
+"Cable is limiting charging speed" = "Il cavo limita la velocità di ricarica";
+"Cable identified as %@" = "Cavo identificato come %@";
+"This e-marker is used in: %@" = "Questo e-marker è usato in: %@";
+"Cable made by %@" = "Cavo realizzato da %@";
+"Cable rated for %@ at up to %lldV (~%lldW)" = "Cavo classificato per %1$@ fino a %2$lldV (~%3$lldW)";
+"Cable rated to %lldV / %@, delivers up to %lldW (USB-PD caps at 48V)" = "Cavo classificato per %1$lldV / %2$@, può fornire fino a %3$lldW (USB-PD limita a 48V)";
+"Cable speed: %@" = "Velocità cavo: %@";
+"Cable trust signals:" = "Segnali affidabilità cavo:";
+"Carrying DisplayPort video" = "Supporta video DisplayPort";
+"Carrying both data and DisplayPort video." = "Supporta sia dati che video DisplayPort.";
+"Charger advertises up to %lldW" = "Il caricatore supporta fino a %lldW";
+"Charger: %@" = "Caricatore: %@";
+"Charger: %@ %@" = "Caricatore: %1$@ %2$@";
+"Charger identified as %@" = "Caricatore identificato come %@";
+"Charger and cable are well-matched. The Mac draws what it needs moment to moment, up to this limit." = "Caricatore e cavo sono ben abbinati. Il Mac assorbe la potenza necessaria di volta in volta, fino a questo limite.";
+"Charger can deliver up to %lldW, but this cable is only rated to carry %lldW. Replace the cable to charge faster." = "Il caricatore può fornire fino a %1$lldW, ma questo cavo è classificato per supportare solo %2$lldW. Per caricare più velocemente sostituisci il cavo.";
+"Charging" = "In carica";
+"Charging at %lldW (charger can do up to %lldW)" = "Carica a %1$lldW (il caricatore può caricare fino a %2$lldW)";
+"Charging only" = "Solo carica";
+"Charging well · up to %lldW" = "Carica corretta · fino a %lldW";
+"Charging · %lldW charger" = "In carica · caricatore %lldW";
+"System reports charger at %lldW" = "Il sistema rileva un caricatore %lldW";
+"Charging: " = "In carica: ";
+"Connected devices:" = "Dispositivi connessi:";
+"Connected" = "Connesso";
+"Connected device: %@, %@" = "Dispositivo connesso: %1$@, %2$@";
+"Connected to %@" = "Connesso a %@";
+"Connected via %lld hops: %@" = "Connesso via %1$lld hop: %2$@";
+"Connected." = "Connesso.";
+"Copper" = "Rame";
+"Couldn't determine cable type from this port." = "Impossibile determinare il tipo di cavo in questa porta.";
+"Currently negotiated: %@ @ %@ (%@)" = "Attualmente negoziati: %1$@ @ %2$@ (%3$@)";
+"Display connected" = "Schermo connesso";
+"Display connected · %lldW charger" = "Schermo connesso · caricatore %lldW";
+"DisplayPort video over USB-C Alt Mode." = "Video DisplayPort su modalità alternativa USB-C.";
+"E-marker claims EPR support but reports only 20V max VBUS" = "L'e-marker dichiara il supporto EPR ma riporta solo VBUS max 20 V";
+"E-marker reports no vendor identity" = "L'e-marker non riporta l'identità del produttore";
+"E-marker uses a reserved cable-latency value" = "L'e-marker usa un valore di latenza del cavo riservato";
+"E-marker uses a reserved current-rating value" = "L'e-marker usa un valore di corrente nominale riservato";
+"E-marker uses a reserved data-speed value" = "L'E-marker usa un valore di velocità dati riservato";
+"E-marker uses an invalid VDO version" = "L'e-marker usa una versione VDO non valida";
+"E-marker uses an invalid cable-termination value" = "L'e-marker usa un valore di terminazione del cavo non valido";
+"Last leg drops from %@ to %@" = "L'ultima tratto decade da %1$@ a %2$@";
+"This cable's e-marker doesn't report a vendor ID, which is common on genuine cables. It's only worth a closer look if the cable's other capability data is also inconsistent." = "L'e-marker di questo cavo non riporta un ID produttore, cosa comune nei cavi autentici. Vale la pena approfondire solo se anche gli altri dati sulle capacità del cavo sono incoerenti.";
+"Linked at %@" = "Collegato a %@";
+"Negotiation hasn't completed yet." = "La negoziazione non è ancora stata completata.";
+"Charger on standby" = "Caricatore in standby";
+"Another charger is powering the Mac right now. macOS draws from one charger at a time, so this charger stays on standby until the other is unplugged." = "In questo momento un altro caricatore sta alimentando il Mac. macOS usa un caricatore alla volta, quindi questo resta in standby finché non scolleghi l'altro.";
+"No USB-C / MagSafe ports were found on this Mac." = "Nessuna porta USB-C/MagSafe trovata in questo Mac.";
+"No e-marker detected. This cable doesn't advertise its capabilities." = "Nessun e-marker rilevato. Questo cavo non dichiara le proprie capacità.";
+"No e-marker detected. The cable may have one, but macOS only reads it above 3A or with Thunderbolt." = "Nessun e-marker rilevato. Il cavo potrebbe averne uno, ma macOS lo legge solo sopra i 3 A o con Thunderbolt.";
+"Nothing connected" = "Nessun dispositivo collegato";
+"Only USB 2.0 is active. If you expected high speed, the cable may not support it." = "È attivo solo USB 2.0. Se ti aspettavi un'alta velocità, il cavo potrebbe non supportarla.";
+"Optical" = "Ottico";
+"Optical cable" = "Cavo ottico";
+"Optical cable, not electrically isolated (carries copper alongside the fibres)" = "Cavo ottico, non isolato elettricamente (contiene rame lungo le fibre)";
+"Optical fibres are electrically isolated end-to-end" = "Le fibre ottiche sono isolate elettricamente end-to-end";
+"Other" = "Altro";
+"Passive cable" = "Cavo passivo";
+"Plug a cable into %@ to see what it can do." = "Per vedere le caratteristiche del cavo collegalo a %@ .";
+"Power is flowing but no data link is established." = "Connessione alimentazione attiva ma non è stato stabilito alcun collegamento dati.";
+"Power is flowing. No data connection." = "Connessione alimentazione attiva. Nessuna connessione dati.";
+"Raw IOKit properties:" = "Proprietà IOKit RAW:";
+"Re-driver" = "Re-driver";
+"Re-timer" = "Re-timer";
+"Reserved" = "Riservato";
+"Slow USB device or charge-only cable" = "Dispositivo USB lento o cavo di sola ricarica";
+"Slow USB device or charge-only cable · %lldW charger" = "Dispositivo USB lento o cavo di sola ricarica · Caricabatterie %lldW";
+"SuperSpeed USB (5 Gbps or faster)" = "USB SuperSpeed (5 Gbps o maggiore)";
+"SuperSpeed data link is active." = "Collegamento dati SuperSpeed attivo.";
+"Supports %@." = "Supporta %@.";
+"The cable's e-marker advertises EPR Capable, but reports its Max VBUS Voltage as 20V. EPR operation needs 48V or 50V VBUS, so the two fields contradict each other." = "L'e-marker del cavo riporta la funzionalità EPR, ma segnala una tensione VBUS massima pari a 20V. Il funzionamento dell'EPR richiede VBUS da 48V o 50V, quindi i due campi si contraddicono a vicenda.";
+"The cable's e-marker reports VDO version %lld, which is reserved or marked Invalid by the USB-PD spec for this cable type. Real e-marker silicon should not emit Invalid version values." = "L'e-marker del cavo riporta la versione VDO %lld, che è riservata o contrassegnata dalle specifiche USB-PD per questo tipo di cavo come non valida. Il vero e-marker non dovrebbe emettere valori di versione non validi.";
+"The cable's e-marker reports cable termination %lld, which the USB-PD spec marks as Invalid for this cable type. Mis-flashed e-markers commonly disagree with the cable's actual physical wiring here." = "L'e-marker del cavo riporta la terminazione del cavo %lld, che le specifiche USB-PD per questo tipo di cavo contrassegnano come non valida. Gli e-marker che lampeggiano erroneamente spesso non sono d'accordo con l'effettivo cablaggio fisico del cavo.";
+"The cable's e-marker reports cable-latency value %lld, which is reserved by the USB-PD spec for this cable type. Real e-marker chips should not emit reserved values." = "L'e-marker del cavo riporta il valore di latenza del cavo %lld, riservato dalle specifiche USB-PD per questo tipo di cavo. I veri chip e-marker non dovrebbero riportare valori riservati.";
+"The cable's e-marker reports current value %lld, which is reserved by the USB-PD spec. Real e-marker chips should not emit reserved values." = "L'e-marker del cavo riporta il valore corrente %lld, riservato dalle specifiche USB-PD. I veri chip e-marker non dovrebbero riportare valori riservati.";
+"The cable's e-marker reports speed value %lld, which is reserved by the USB-PD spec. Real e-marker chips should not emit reserved values." = "L'e-marker del cavo riporta il valore di velocità %lld, riservato dalle specifiche USB-PD. I veri chip e-marker non dovrebbero riportare valori riservati.";
+"The cable's e-marker reports vendor %@, which isn't in our bundled USB-IF list. The number could be unassigned, copied, or assigned after the bundled list was generated. On its own this isn't proof of a problem, but on a clone cable it often appears alongside other inconsistencies." = "L'e-marker del cavo riporta il produttore %@, che non è nell'elenco USB-IF in bundle. Il numero potrebbe essere annullato, copiato o assegnato dopo la generazione dell'elenco raggruppato. Di per sé questo non è la prova di un problema, ma su un cavo clone appare spesso insieme ad altre incongruenze.";
+"This port can't read cable details (USB-only port, no Power Delivery)" = "Questa porta non può leggere i dettagli del cavo (porta solo USB, nessuna alimentazione)";
+"Thunderbolt / USB4" = "Thunderbolt / USB4";
+"Thunderbolt / USB4 link active" = "Collegamento attivo Thunderbolt/USB4";
+"Thunderbolt / USB4 · %lldW charger" = "Thunderbolt/USB4 · caricatore %lldW";
+"USB 2.0 (480 Mbps)" = "USB 2.0 (480 Mbps)";
+"USB 2.0 only (480 Mbps), no high-speed data" = "Solo USB 2.0 (480 Mbps), no dati ad alta velocità";
+"USB 3.2 Gen 1 (5 Gbps)" = "USB 3.2 Gen 1 (5 Gbps)";
+"USB 3.2 Gen 2 (10 Gbps)" = "USB 3.2 Gen 2 (10 Gbps)";
+"USB Hub" = "Hub USB";
+"USB Peripheral" = "Periferica USB";
+"USB default" = "Predefinito USB";
+"USB device" = "Dispositivo USB";
+"USB device · %lldW charger" = "Dispositivo USB · caricatore %lldW";
+"USB-C with video" = "USB-C con video";
+"USB-C with video · %lldW charger" = "USB-C con video · caricatore %lldW";
+"USB4 Gen 3 (20 / 40 Gbps)" = "USB4 Gen 3 (20/40 Gbps)";
+"USB4 Gen 4 (80 Gbps)" = "USB4 Gen 4 (80 Gbps)";
+"Unknown device" = "Dispositivo sconosciuto";
+"Unknown generation (raw speed code 0x%@)" = "Generazione sconosciuta (codice velocità raw 0x%@)";
+"Unknown generation (raw speed code 0x2, inferred TB5)" = "Generazione sconosciuta (codice velocità raw 0x2, dedotto TB5)";
+"Unspecified" = "Non specificato";
+"Up to %lld Gb/s %@" = "Fino a %1$lld Gb/s %2$@";
+"VCONN-powered device" = "Dispositivo alimentato da VCONN";
+"Vendor ID isn't in USB-IF's published list" = "L'ID produttore non è nell'elenco pubblicato di USB-IF";
+"What can this USB-C cable actually do?" = "Quali caratteristiche effettive ha questo cavo USB-C?";
+" · %lldW cable" = " · cavo %lldW";
+"high-speed data" = "dati ad alta velocità";
+"smart cable" = "Cavo con e-marker";
+"video" = "video";
+
+/* Cable speed / charger status strings (previously missing keys) */
+"20 Gbps capable" = "Compatibile con 20 Gbps";
+"40 Gbps capable" = "Compatibile con 40 Gbps";
+"80 Gbps capable" = "Compatibile con 80 Gbps";
+"Charger connected. Battery is full, so the Mac isn't drawing power." = "Caricatore collegato. La batteria è carica, quindi il Mac non assorbe alimentazione.";
+"E-marker reports passive (no USB signal conditioning). Thunderbolt is negotiated separately by the controller." = "L'e-marker riporta passivo (nessun condizionamento del segnale USB). Thunderbolt viene negoziato separatamente dal controller.";
+"E-marker reports passive. This is normal for Thunderbolt cables where the active electronics handle Thunderbolt, not USB." = "L'e-marker riporta passivo. Ciò è normale per i cavi Thunderbolt dove l'elettronica attiva gestisce Thunderbolt, non USB.";
+"Per-port negotiation data is not available. Wattage is from the system-wide adapter reading." = "I dati di negoziazione per porta non sono disponibili. Il wattaggio proviene dalla lettura dell'adattatore a livello di sistema.";
+"Plugged in · battery full" = "Collegato · batteria carica";
+"Try a higher-wattage charger to identify the cable." = "Prova un caricatore con wattaggio maggiore per identificare il cavo.";
+"No data link or charger detected on this port." = "Nessuna connessione dati né caricatore rilevati su questa porta.";
+"USB4 Gen 3 (40 Gbps, Thunderbolt 4 class)" = "USB4 Gen 3 (40 Gbps, classe Thunderbolt 4)";
+"USB4 Gen 4 (80 Gbps, Thunderbolt 5 class)" = "USB4 Gen 4 (80 Gbps, classe Thunderbolt 5)";
+
+/* DisplayPort lane labels, connected-device variants, pin-diagram Data label */
+"2 DP lanes + USB3 data" = "2 lane DP + dati USB3";
+"4 DP lanes (no USB3 alongside video)" = "4 lane DP (nessun USB3 insieme al video)";
+"Carrying DisplayPort video (%@)" = "Supporta video DisplayPort (%@)";
+"Connected device: %@" = "Dispositivo connesso: %@";
+"Connected device: %@, %@ (%@)" = "Dispositivo connesso: %1$@, %2$@ (%3$@)";
+"Data" = "Dati";
+"DisplayPort Alt Mode" = "Modalità alternativa DisplayPort";
+
+/* Pro plugin UI strings */
+"%@ (spec, not measured)" = "%@ (da specifica, non misurato)";
+"%@ Diagnostics" = "Diagnostica %@";
+"%lld (%lld failed)" = "%1$lld (%2$lld non riusciti)";
+"A DR_Swap completed successfully. The port changed between DFP (host) and UFP (device) roles." = "DR_Swap completato con successo. La porta è passata tra i ruoli DFP (host) e UFP (dispositivo).";
+"A PR_Swap completed successfully. Common when a hub or dock renegotiates which end supplies power." = "PR_Swap completato con successo. Comune quando un hub o un dock rinegozia quale estremità fornisce alimentazione.";
+"A USB 2.0 connection was detected on the legacy D+/D- pins." = "È stata rilevata una connessione USB 2.0 sui pin legacy D+/D-.";
+"A cable was physically connected or disconnected from the port." = "Un cavo è stato collegato o scollegato fisicamente dalla porta.";
+"Activate" = "Attiva";
+"Active Cable" = "Cavo attivo";
+"Active RDO" = "RDO attivo";
+"Alert" = "Avviso";
+"Attach count" = "Conteggio collegamenti";
+"Buy a licence at whatcable.uk" = "Acquista una licenza su whatcable.uk";
+"CC Advertisement" = "Annuncio CC";
+"CC line voltage" = "Tensione linea CC";
+"Cable Identity" = "Identità cavo";
+"Cancel" = "Annulla";
+"Capability mismatch" = "Conflitto di capacità";
+"Connect a USB-C power source to view live telemetry." = "Collega una sorgente di alimentazione USB-C per vedere la telemetria dal vivo.";
+"Connector" = "Connettore";
+"Controller alert: could indicate overcurrent, overtemperature, or a protocol error. Check Port Health for details." = "Avviso del controller: potrebbe indicare sovracorrente, sovra temperatura o un errore di protocollo. Controlla Integrità porta per i dettagli.";
+"Controller app loaded" = "App controller caricata";
+"Controller firmware finished boot. Appears once per power cycle or hard reset." = "Il firmware del controller ha completato l'avvio. Appare una volta per ciclo di alimentazione o hard reset.";
+"Current" = "Corrente";
+"Current (A)" = "Corrente (A)";
+"Data role swap complete" = "Scambio ruolo dati completato";
+"Data role swaps" = "Scambi ruolo dati";
+"Deactivate" = "Disattiva";
+"Deactivate Licence" = "Disattiva licenza";
+"Deactivate WhatCable Pro?" = "Disattivare WhatCable Pro?";
+"Default USB (500/900 mA)" = "USB predefinito (500/900 mA)";
+"Detach count" = "Conteggio scollegamenti";
+"Device Identity" = "Identità dispositivo";
+"Diagnostics" = "Diagnostica";
+"Disabled" = "Disattivato";
+"Discover Identity response received on SOP channel. Carries the connected partner's VID, PID, and capability VDOs (not the cable; cable identity uses SOP')." = "Risposta Discover Identity ricevuta sul canale SOP. Contiene VID, PID e VDO di capacità del partner connesso (non il cavo; l'identità del cavo usa SOP').";
+"Display Output" = "Uscita video";
+"Enabled" = "Attivato";
+"Enter your licence key to unlock pro features." = "Inserisci la tua chiave di licenza per sbloccare le funzioni Pro.";
+"Estimating cable resistance…" = "Stima della resistenza del cavo in corso…";
+"Event Log" = "Registro eventi";
+"FET enable failures" = "Errori di attivazione FET";
+"FET status" = "Stato FET";
+"Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Generato dal controller TPS6598x quando un cavo viene inserito o rimosso fisicamente. È normale che si generi più volte durante un singolo evento di collegamento.";
+"General port controller status change (connection state, error flags)." = "Cambio generico di stato del controller della porta (stato connessione, flag di errore).";
+"Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Registro di stato generico del controller modificato. Riguarda stato del connettore, orientamento e condizioni di errore.";
+"Good" = "Buono";
+"Hard reset count" = "Conteggio hard reset";
+"High" = "Alto";
+"Could not reach the licence server. Check your internet connection and try again." = "Impossibile raggiungere il server delle licenze. Controlla la connessione internet e riprova.";
+"I2C error count" = "Conteggio errori I2C";
+"Inactive" = "Inattivo";
+"Invalid licence key. Check the key and try again." = "Chiave di licenza non valida. Controlla la chiave e riprova.";
+"Lanes" = "Lane";
+"Legacy USB 2.0 data lines (D+/D-) detected a partner. Separate from the CC-based PD connection." = "Le linee dati USB 2.0 legacy (D+/D-) hanno rilevato un partner. Separata dalla connessione PD basata su CC.";
+"Licence…" = "Licenza…";
+"Licensed to: %@" = "Licenza intestata a: %@";
+"Link rate" = "Velocità link";
+"Liquid Detection" = "Rilevamento liquidi";
+"Liquid detected" = "Liquido rilevato";
+"Live" = "In diretta";
+"MagSafe 3" = "MagSafe 3";
+"MagSafe Charger" = "Caricabatterie MagSafe";
+"Manufacturer" = "Produttore";
+"Marginal" = "Marginale";
+"Requested max operating current" = "Corrente operativa massima richiesta";
+"Requested max operating power" = "Potenza operativa massima richiesta";
+"Max power" = "Potenza max";
+"Mitigations" = "Mitigazioni";
+"Mode" = "Modalità";
+"Monitor" = "Monitor";
+"Native" = "Nativo";
+"Port maximum. Live per-port metering is not available on this hardware." = "Massimo della porta. La misurazione dal vivo per porta non è disponibile su questo hardware.";
+"No" = "No";
+"No PD contract data" = "Nessun dato di contratto PD";
+"No PD events" = "Nessun evento PD";
+"No PDOs advertised" = "Nessun PDO dichiarato";
+"No Power Data" = "Nessun dato di alimentazione";
+"No SOP identity data" = "Nessun dato di identità SOP";
+"No cable connected." = "Nessun cavo collegato.";
+"No cable identity data" = "Nessun dato di identità del cavo";
+"No health counters" = "Nessun contatore di integrità";
+"No liquid detection data" = "Nessun dato di rilevamento liquidi";
+"None" = "Nessuno";
+"Open Pro diagnostics for this port" = "Apri la diagnostica Pro per questa porta";
+"Requested operating current" = "Corrente operativa richiesta";
+"Requested operating power" = "Potenza operativa richiesta";
+"Requested output voltage" = "Voltaggio uscita richiesto";
+"PD protocol engine status changed. Tracks contract state, hard/soft reset counts, and message sequence numbers." = "Stato del motore di protocollo PD modificato. Traccia lo stato del contratto, i conteggi di hard/soft reset e i numeri di sequenza dei messaggi.";
+"PD spec revision" = "Revisione specifica PD";
+"PD state" = "Stato PD";
+"PD status update" = "Aggiornamento di stato PD";
+"PDO position" = "Posizione PDO";
+"Partner device identity arrived via SOP (the connected device, not the cable)." = "Identità del dispositivo partner ricevuta via SOP (il dispositivo connesso, non il cavo).";
+"Passive Cable" = "Cavo passivo";
+"Pin Diagram" = "Diagramma pin";
+"Plug inserted or removed" = "Connettore inserito o rimosso";
+"Plug: %@" = "Connettore: %@";
+"Port Health" = "Integrità porta";
+"Power" = "Potenza";
+"Power (W)" = "Potenza (W)";
+"Power Contract" = "Contratto di alimentazione";
+"Power Monitor" = "Monitor alimentazione";
+"Power delivery parameters changed (voltage, current, or power role)." = "Parametri di power delivery modificati (tensione, corrente o ruolo di alimentazione).";
+"Power path status changed. Covers VBUS voltage, current draw, and source/sink transitions." = "Stato del percorso di alimentazione modificato. Riguarda tensione VBUS, assorbimento di corrente e transizioni sorgente/carico.";
+"Power role swap complete" = "Scambio ruolo alimentazione completato";
+"Power role swaps" = "Scambi ruolo alimentazione";
+"Power status update" = "Aggiornamento di stato alimentazione";
+"Pro features unlocked." = "Funzioni Pro sbloccate.";
+"Pro features will be locked until you enter your key again." = "Le funzioni Pro resteranno bloccate finché non inserisci di nuovo la chiave.";
+"Pro required" = "Pro richiesto";
+"Product ID" = "ID prodotto";
+"Product Type" = "Tipo di prodotto";
+"Raw VDOs" = "VDO grezzi";
+"Raw cable VDOs" = "VDO grezzi del cavo";
+"Rp current level" = "Livello corrente Rp";
+"Rp resistor" = "Resistore Rp";
+"SOP identity received" = "Identità SOP ricevuta";
+"Short detect count" = "Conteggio rilevamenti corto";
+"Signal Routing" = "Instradamento segnale";
+"Sleep/wake" = "Sospensione/riattivazione";
+"Source PDOs" = "PDO sorgente";
+"Source capabilities received" = "Capacità sorgente ricevute";
+"Source_Capabilities message received from the power source. Contains the PDO list (voltages and currents on offer)." = "Messaggio Source_Capabilities ricevuto dalla sorgente di alimentazione. Contiene l'elenco PDO (tensioni e correnti offerte).";
+"State" = "Stato";
+"Status update" = "Aggiornamento di stato";
+"System Power Input" = "Ingresso alimentazione sistema";
+"System sleep/wake transition. The port controller state is saved and restored across sleep boundaries." = "Transizione di sospensione/riattivazione del sistema. Lo stato del controller della porta viene salvato e ripristinato attraverso i confini di sospensione.";
+"The Mac entered or exited sleep, causing port controller state changes." = "Il Mac è entrato o uscito dalla sospensione, causando cambiamenti di stato del controller della porta.";
+"The charger or power source advertised what voltages and currents it can provide." = "Il caricatore o la sorgente di alimentazione ha dichiarato quali tensioni e correnti può fornire.";
+"The data role flipped: the port switched between host and device mode." = "Il ruolo dati si è invertito: la porta è passata tra modalità host e dispositivo.";
+"The port controller firmware finished initialising and is ready." = "Il firmware del controller della porta ha completato l'inizializzazione ed è pronto.";
+"The port controller raised an alert (overcurrent, overtemperature, or similar fault)." = "Il controller della porta ha generato un avviso (sovracorrente, sovra temperatura o guasto simile).";
+"The power direction flipped: the port switched between providing and receiving power." = "La direzione dell'alimentazione si è invertita: la porta è passata tra fornitura e ricezione di alimentazione.";
+"This event code is not in the known TPS6598x interrupt table. May be firmware-specific." = "Questo codice evento non è nella tabella degli interrupt TPS6598x nota. Potrebbe essere specifico del firmware.";
+"Tunneled" = "Tunnelato";
+"UVDM discovery started. The controller is probing for vendor-specific capabilities on the cable or partner." = "Rilevamento UVDM avviato. Il controller sta sondando le capacità specifiche del produttore sul cavo o sul partner.";
+"UVDM enumeration" = "Enumerazione UVDM";
+"UVDM status update" = "Aggiornamento di stato UVDM";
+"USB 2.0 plug event" = "Evento di collegamento USB 2.0";
+"USB Power Delivery protocol status changed (contract state, message counters)." = "Stato del protocollo USB Power Delivery modificato (stato contratto, contatori messaggi).";
+"USB-C Charger" = "Caricabatterie USB-C";
+"Unknown" = "Sconosciuto";
+"Unknown Device" = "Dispositivo sconosciuto";
+"Unknown event %@" = "Evento sconosciuto %@";
+"Unrecognised event code from the port controller." = "Codice evento non riconosciuto dal controller della porta.";
+"Unregistered cable (no e-marker)" = "Cavo non registrato (nessun e-marker)";
+"Unstructured VDM enumeration began (discovering vendor-specific capabilities)." = "Enumerazione VDM non strutturata avviata (rilevamento delle capacità specifiche del produttore).";
+"Unstructured VDM status changed (vendor-specific messaging like Alt Mode setup)." = "Stato VDM non strutturato modificato (messaggistica specifica del produttore come configurazione Alt Mode).";
+"VDO fail count" = "Conteggio errori VDO";
+"Vendor ID" = "ID produttore";
+"Vendor-specific unstructured VDM state changed. Used by Apple for custom Alt Mode setup and Thunderbolt negotiation." = "Stato VDM non strutturato specifico del produttore modificato. Usato da Apple per la configurazione Alt Mode personalizzata e la negoziazione Thunderbolt.";
+"Voltage" = "Tensione";
+"Voltage (V)" = "Tensione (V)";
+"WhatCable Pro" = "WhatCable Pro";
+"Year of manufacture" = "Anno di produzione";
+"Yes" = "Sì";
+"cable resistance estimate" = "stima della resistenza del cavo";
+
+/* Pro plugin format strings */
+"%@ Port %lld" = "%1$@ Porta %2$lld";
+"APDO, %@ to %@ @ %@, %@ max" = "APDO, da %1$@ a %2$@ @ %3$@, %4$@ max";
+"Battery, %@ minimum, %@" = "Batteria, minimo %1$@, %2$@";
+"Battery, %@ to %@, %@" = "Batteria, %1$@ a %2$@, %3$@";
+"EPR AVS, %@ to %@, %@" = "EPR AVS, %1$@ a %2$@, %3$@";
+"Fixed, %@ @ %@, %@" = "Fisso, %1$@ @ %2$@, %3$@";
+"Port" = "Porta";
+"Rate %lld" = "Velocità %lld";
+"Type %lld" = "Tipo %lld";
+"Variable, %@ minimum @ %@, %@ minimum" = "Variabile, minimo %1$@ @ %2$@, minimo %3$@";
+"PPS, %@ to %@ @ %@, %@ max" = "PPS, %1$@ a %2$@ @ %3$@, %4$@ max";
+"SPR AVS, %@ at 15V / %@ at 20V" = "SPR AVS, %1$@ a 15V / %2$@ a 20V";
+"Variable, %@ to %@ @ %@" = "Variabile, %1$@ a %2$@ @ %3$@";
+
+/* Pro plugin strings missing from prior export */
+"Enter Licence Key…" = "Inserisci chiave di licenza…";
+"This is the most the charger and your Mac agreed to, not a live reading. Your Mac reports the live figure only as a system total, shown in the System Power Input chart below." = "Questo è il massimo concordato tra il caricatore e il Mac, non una lettura in tempo reale. Il Mac riporta il valore in tempo reale solo come totale del sistema, visualizzato nel grafico 'Ingresso alimentazione sistema' qui sotto.";
+"No power data for this port right now." = "Nessun dato di alimentazione per questa porta al momento.";
+"Waiting for power telemetry from macOS…" = "In attesa dei dati di alimentazione da macOS…";
+"Upgrade to WhatCable Pro" = "Passa a WhatCable Pro";
+"not reported in this state" = "non riportato in questo stato";
+
+/* Widget strings */
+"Cable Status" = "Stato cavo";
+"No cable data" = "Nessun dato sul cavo";
+"Open WhatCable to start monitoring." = "Apri WhatCable per iniziare il monitoraggio.";
+"See what your USB-C cables can do at a glance." = "Scopri a colpo d'occhio cosa possono fare i tuoi cavi USB-C.";
+
+/* Negotiation diagnostics + Pro UX (PR #55). English; non-English to be refined by the community translation flow. */
+"The cable's e-marker and the Thunderbolt controller disagree on its speed. The controller measured a higher, confirmed rate, so that figure is used." = "L'e-marker del cavo e il controller Thunderbolt non sono d'accordo sulla velocità. Il controller ha misurato una velocità più alta e confermata, quindi viene usato questo valore.";
+"Running at %@" = "Funzionante a %@";
+"There's no cable e-marker or controller data, and no port or device capability to compare against, so we can't tell whether the cable is the limit." = "Non ci sono e-marker del cavo o dati del controller e nessuna porta o capacità del dispositivo con cui confrontarsi, quindi non è possibile confermare se il cavo sia il limite.";
+"This cable has no e-marker and no controller data, so we can't tell whether it is the limit." = "Questo cavo non ha e-marker né dati del controller, quindi non è possibile confermare se sia il limite.";
+"Running slower than expected (%@)" = "Funzionante ad una velocità più bassa di quanto previsto (%@)";
+"The parts we can see all support %@ or more, but the link came up slower. Reseating the cable or trying another port may help." = "Tutte le parti che è possibile vedere supportano %@ o più, ma il collegamento è più lento. Potrebbe essere utile riposizionare il cavo o provare un'altra porta.";
+"Running at full data speed (%@)" = "Funzionante alla massima velocità (%@)";
+"Nothing is being held back: the parts we can see all support this speed." = "Nessun limite visibile: le parti che è possibile vedere supportano tutte questa velocità.";
+"Cable is limiting data speed" = "Il cavo limita la velocità dati";
+"The Mac and device can do %@, but the cable only carries %@. A faster cable would unlock full speed." = "Il Mac e il dispositivo supportano %@, ma il cavo supporta solo %@. Un cavo più veloce potrebbe usare la massima velocità.";
+"This Mac port limits data speed" = "Questa porta Mac limita la velocità dati";
+"The cable and device can do %@, but this port maxes out at %@." = "Il cavo e il dispositivo supportano %@, ma questa porta raggiunge il limite massimo di %@.";
+"Device runs at %@" = "Dispositivo funzionante a %@";
+"This is the fastest the connected device supports. It is not a cable problem." = "Questa è la velocità massima supportata dal dispositivo connesso. Non è un problema di cavo.";
+"Cable says %@, link reads %@" = "Il cavo riporta %@, il collegamento legge %@";
+"The cable's e-marker reports %@, but the active link is reading %@. One of those readings is wrong, and without a Thunderbolt controller cross-check we can't tell which. Trying a known-good cable will identify the culprit." = "L'e-marker del cavo riporta %@, ma il collegamento attivo riporta %@. Una di queste letture è sbagliata e senza un controllo incrociato del controller Thunderbolt non è possibile confermarla. La prova di un cavo sicuramente funzionante identificherà chi fornisce il dato non corretto.";
+"Data blocked by macOS accessory security" = "Dati bloccati dalla sicurezza accessori di macOS";
+"The link is capable of %@, but macOS is blocking data until you approve the accessory. Click Allow on the connection prompt, or check System Settings > Privacy & Security > Allow accessories to connect, then replug." = "Il collegamento è in grado di %@, ma macOS sta bloccando i dati finché non approvi l'accessorio. Fai clic su Consenti nel messaggio di connessione oppure controlla Impostazioni di Sistema > Privacy e sicurezza > Consenti la connessione degli accessori, poi scollega e ricollega.";
+"Battery full, not charging" = "Batteria completamente carica, non in carica";
+"Charger and cable are fine. The Mac will draw up to %lldW when it needs to." = "Caricabatterie e cavo vanno bene. Il Mac quando necessario erogherà fino a %lldW.";
+"Plugged in, charging on hold" = "Collegato, ricarica in pausa";
+"Charger and cable are fine. macOS has paused charging for now, usually a battery charge limit or Optimized Battery Charging. The Mac still draws power from the charger." = "Il caricabatterie e il cavo sono a posto. macOS ha messo in pausa la ricarica per ora, di solito a causa di un limite di carica o della Ricarica ottimizzata della batteria. Il Mac continua a ricevere alimentazione dal caricabatterie.";
+"Plugged in · %lldW charger" = "Collegato · caricabatterie da %lldW";
+"Plugged in" = "Collegato";
+"Charging on hold (charge limit or Optimized Battery Charging)" = "Ricarica in pausa (limite di carica o Ricarica ottimizzata della batteria)";
+"Negotiation Diagnostics" = "Diagnostica negoziazione";
+"What each link can do, and where the bottleneck is." = "Cosa può fare ciascun collegamento e dov'è il collo di bottiglia.";
+"No Connections" = "Nessuna connessione";
+"Plug a cable into a port to see what is limiting it." = "Collega un cavo a una porta per vedere quale è il limite.";
+"Nothing to diagnose on this port yet (no active power or data link)." = "Niente da diagnosticare ancora in questa porta (nessuna alimentazione attiva o collegamento dati).";
+"Data speed" = "Velocità dati";
+"Display links are not analysed yet." = "I collegamenti schermo non sono ancora stati analizzati.";
+"Mac port" = "Porta Mac";
+"Cable" = "Cavo";
+"Device" = "Dispositivo";
+"Negotiated" = "Negoziato";
+"Charger" = "Caricatore";
+"AC Power" = "Alimentazione CA";
+"bottleneck" = "collo di bottiglia";
+"Cable signals disagree" = "I segnali del cavo non corrispondono";
+"an unknown speed" = "una velocità sconosciuta";
+"a higher speed" = "una velocità più elevata";
+"The cable's own e-marker reports %@, but the Thunderbolt controller measured it running at %@, faster than the e-marker claims. This can happen with active Thunderbolt cables whose e-marker under-reports (declaring themselves passive at a low speed). The controller's confirmed, higher reading is used above." = "L'e-marker del cavo indica %1$@, ma il controller Thunderbolt ha misurato che funziona a %2$@, più veloce di quanto dichiarato dall'e-marker. Questo può succedere con cavi Thunderbolt attivi il cui e-marker sottostima la velocità (dichiarandosi passivi a bassa velocità). Sopra viene usato il valore più alto e confermato del controller.";
+/* Pro overview screen + footer pill (Pro funnel). English; non-English are parity placeholders to be refined by the community translation flow. */
+"Cable Diagnostics" = "Diagnostica cavo";
+"Deep per-port pin maps, plug orientation, and protocol detail." = "Mappe dettagliate dei pin per porta, orientamento connettore e dettagli del protocollo.";
+"Licence Key" = "Chiave licenza";
+"Live MagSafe pin layout for charging and diagnostics." = "Layout pin live per carica e diagnostica.";
+"Live multi-port power graphs and event history." = "Grafici potenza multi porta in tempo reale e cronologia eventi.";
+"MagSafe pin diagrams" = "Diagramma pin MagSafe";
+"Manage Licence…" = "Gestisci licenza…";
+"See exactly what each link can do, and where the bottleneck is." = "Scopri esattamente cosa può fare ciascun collegamento e dove si trova il collo di bottiglia.";
+"Unlock deep diagnostics, live power graphs, and per-port history. One-off licence, no subscription." = "Sblocca diagnostica approfondita, grafici potenza in tempo reale e cronologia per porta. Licenza una tantum, nessun abbonamento.";
+
+/* Display dimension. English; non-English to be refined by the community translation flow. */
+"A display is connected but its capabilities aren't readable, so there's nothing to compare the link against." = "Un display è connesso ma le sue funzionalità non sono leggibili, quindi non c'è nulla con cui confrontare il collegamento.";
+"The link is carrying about %@ (%lld of %lld lanes)." = "Il collegamento veicola circa %@ (%lld di %lld linee).";
+"display" = "schermo";
+"Your %@ is connected, but the link rate isn't readable, so there's nothing to compare its capability against." = "È connesso %@, ma la velocità di collegamento non è leggibile, quindi non c'è nulla con cui confrontare le sue capacità.";
+"Display running at full quality" = "Display funzionante alla massima qualità";
+"Your %@ is connected and the link has the bandwidth for its top mode. Nothing is holding the picture back." = "È connesso %@ e il collegamento ha la larghezza di banda per la sua modalità superiore. L'immagine ha la sua massima qualità.";
+"%lld of %lld lanes at %@" = "%lld di %lld linee a %@";
+"%lld of %lld lanes" = "%lld di %lld linee";
+"up to %lldHz" = "fino a %lldHz";
+"a higher mode than the link is carrying" = "una modalità più alta di quella fornita";
+"High-resolution displays often use compression (DSC) to fit their top mode through a link like this, so selecting the higher mode in Display settings may reach it normally." = "Gli schermi ad alta risoluzione spesso usano la compressione (DSC) per adattarsi alla modalità superiore tramite un collegamento come questo, quindi selezionando la modalità superiore nelle impostazioni dello schermo è possibile raggiungerla normalmente.";
+"Video is going through a %@ adapter" = "Il video passa attraverso un adattatore %@";
+"Your %@ is reached through a USB-C to %@ adapter, and the link isn't currently carrying the monitor's top mode (%@, about %@); it's carrying about %@ (%@). With an adapter in the chain, the adapter's own limit may be the cap rather than the cable. Trying the monitor over native DisplayPort, or a higher-spec adapter, would tell you which." = "%@ viene raggiunto tramite un adattatore da USB-C a %@ e il collegamento attualmente non supporta la modalità massima del monitor (%@, circa %@); fornisce circa %@ (%@). Con un adattatore nel collegamento, il limite dell'adattatore potrebbe essere il limite del collegamento e non il cavo. Provare il monitor su DisplayPort nativo o con un adattatore con specifiche superiori potrebbe aiutarti a capire chi è il limite.";
+"Monitor can do more than the link is carrying" = "Il monitor può ha maggiori capacità di quanto fornisce il collegamento";
+"Your %@ can run %@, which needs about %@, but the link is currently carrying about %@ (%@). If you've selected the higher mode and aren't getting it, the cable or adapter is the likely limit; if you haven't tried it, selecting it may retrain the link to a higher rate." = "%@ può funzionare a %@, che richiede circa %@, ma il collegamento attuale fornisce circa %@ (%@). Se hai selezionato la modalità più alta e non la ottieni, il limite potrebbe essere il cavo o l'adattatore; se non l'hai provato, selezionandolo potresti ottenere un collegamento a una velocità più alta.";
+"Display Diagnostics" = "Diagnostica display";
+"What your monitor can do, and what the link is carrying." = "Quali funzionalità ha il monitor e quale caratteristica ha il collegamento.";
+"No Displays" = "Nessuno schermo";
+"Connect a monitor over USB-C or Thunderbolt to see what the link is delivering." = "Per vedere cosa offre il collegamento collega un monitor tramite USB-C o Thunderbolt.";
+"%@ port %lld" = "%@ porta %lld";
+"Display" = "Schermo";
+"Display: %@" = "Schermo: %@";
+"Display: %@ · video output %lld" = "Schermo: %1$@ · uscita video %2$lld";
+"%lld × %lld" = "%lld × %lld";
+"native %lldHz" = "nativo %lldHz";
+"Top mode needs" = "Esige modalità superiore";
+"Link carries" = "Il collegamento permette";
+"Rate" = "Valutazione";
+"See whether the link is carrying your monitor's full resolution and refresh." = "Verifica se il collegamento supporta la piena risoluzione del monitor e aggiorna.";
+"Display links have their own screen: Display Diagnostics." = "I collegamenti di visualizzazione hanno una propria schermata: diagnostica display.";
+
+/* Display dimension: cable attribution. English; community-refined. */
+"Your %@ can run %@, which needs about %@, but the link is currently carrying about %@ (%@). The video is tunneled over Thunderbolt or USB4, so the cable carries far more than the display needs: this is unlikely to be the cable. It's most likely the resolution or refresh rate selected in Display settings, or this Mac's limit for this display." = "%@ può funzionare a %@, che richiede circa %@, ma il collegamento attualmente fornisce circa %@ (%@). Il video viene incanalato tramite Thunderbolt o USB4, quindi il cavo trasporta molto più di quanto necessita il display: è improbabile che sia il cavo. Molto probabilmente è la risoluzione o la frequenza di aggiornamento selezionata nelle impostazioni dello schermo oppure è il limite del Mac per questo schermo.";
+"Your %@ can run %@, which needs about %@, but the link is currently carrying about %@ (%@). The cable is already carrying every DisplayPort lane this Mac provides, so this is unlikely to be the cable. It's most likely the resolution or refresh rate selected in Display settings." = "%@ può funzionare a %@, che richiede circa %@, ma il collegamento attualmente trasporta circa %@ (%@). Il cavo trasporta già tutte le linee DisplayPort fornite da questo Mac, quindi è improbabile che si tratti del cavo. Molto probabilmente è la risoluzione o la frequenza di aggiornamento selezionata nelle impostazioni dello schermo.";
+
+/* Display dimension: branch device. English; community-refined. */
+"Your %@ is reached through a USB-C to %@ adapter that reports as %@, currently carrying about %@ (%@), short of the monitor's top mode (%@, about %@). With an adapter in the chain, the adapter's own limit may be the cap rather than the cable. A native DisplayPort connection, or a higher-spec adapter, would tell you which." = "%@ è collegato tramite un adattatore da USB-C a %@ segnalato come %@, che attualmente fornisce circa %@ (%@), meno della modalità superiore del monitor (%@, circa %@). Con un collegamento con l'adattatore, il limite potrebbe essere l'adattatore e non il cavo. Una connessione DisplayPort nativa o un adattatore con specifiche superiori potrebbero aiutarti a capire chi è il limite.";
+
+/* Billboard device (display dimension). English; community-refined. */
+"Billboard device present" = "Presente dispositivo Billboard";
+"A Billboard device is present on this port. That usually appears when an Alt Mode like DisplayPort was set up but didn't fully come up. Your display is below its best mode, so a re-plug, a different cable, or a different adapter may bring it up. Some docks show a Billboard device normally, so this isn't always a fault." = "Su questa porta è presente un dispositivo Billboard. Di solito appare quando è stata impostata una modalità alternativa come DisplayPort ma non è stata attivata completamente. Il display non usa la modalità migliore, quindi prova a ricollegarlo, ad usare un cavo diverso o un adattatore diverso per poterlo ripristinare. Alcuni dock mostrano normalmente un dispositivo Billboard, quindi questo non è sempre un difetto.";
+
+/* Display dimension: compression at the link ceiling (issue #246). */
+"Display may be using compression to reach its top mode" = "Il display potrebbe usare la compressione per raggiungere la sua modalità massima";
+"Your %@ can run %@, which uncompressed would need about %@. This link is already running every lane at a high rate, carrying about %@ (%@). Many high-resolution displays use compression (DSC) to fit their top mode through a link like this, so the link rate alone can't tell whether you're already at your best mode. If the picture looks right, it most likely is." = "Il tuo %@ può funzionare a %@, che senza compressione richiederebbe circa %@. Questo collegamento usa già tutte le linee a una velocità elevata e trasporta circa %@ (%@). Molti display ad alta risoluzione usano la compressione (DSC) per far passare la loro modalità massima attraverso un collegamento come questo, quindi la sola velocità del collegamento non indica se sei già alla tua modalità migliore. Se l'immagine appare corretta, è molto probabile che lo sia.";
+
+/* Display dimension: confirmed full quality via CoreGraphics live mode (issue #246 Option B). */
+"macOS reports your %@ at its top mode (%@), and the link is carrying it. Many high-resolution displays use compression (DSC) to fit a mode like this through the link, so the link rate alone can't show it; your display is at full quality." = "macOS riporta che %@ sta funzionando alla modalità massima (%@) e il collegamento la supporta. Molti schermi ad alta risoluzione per abilitare una modalità come questa attraverso il collegamento usano la compressione (DSC); la sola velocità del collegamento non fornisce l'info sulla compressione DSC. Lo schermo sta funzionando alla massima qualità.";
+
+/* Session monitor verdicts. */
+"Battery full, not drawing power" = "Batteria carica, non assorbe energia";
+"Performing as expected" = "Prestazioni come previsto";
+"No problems seen while watching this cable." = "Nessun problema riscontrato durante i controlli di questo cavo.";
+"Saw a brief drop or a single high reading. Not conclusive; still watching." = "C'è stata una breve caduta o una singola lettura alta. Non conclusivo; controllo ancora in corso.";
+"Not performing as expected" = "Non funziona come previsto";
+"Isn't performing as expected" = "Le prestazioni non sono quelle previste";
+
+/* Power Monitor system power source indicator. */
+"Battery" = "Batteria";
+"Source" = "Sorgente";
+"Battery Power" = "Potenza batteria";
+"Negotiating…" = "Negoziazione…";
+"Waiting for live reading…" = "In attesa lettura in tempo reale…";
+
+/* Softened blank e-marker note (DAR-140) */
+"E-marker vendor ID is blank, but the cable is identified at the connector" = "L'ID produttore dell'e-marker è vuoto, ma il cavo è identificato dal connettore";
+"The cable's e-marker chip reports a blank vendor ID, but the connector identifies the cable as %@ (%@), a USB-IF-registered vendor. A blank e-marker VID by itself is common on genuine passive cables, so it isn't a sign of a problem." = "Il chip e-marker del cavo riporta un ID produttore vuoto, ma il connettore identifica il cavo come %1$@ (%2$@), un produttore registrato presso USB-IF. Un VID e-marker vuoto di per sé è comune nei cavi passivi autentici, quindi non è segno di un problema.";
+"Cable note:" = "Nota sul cavo:";
+"Vendor is recognised but not in WhatCable's bundled USB-IF list" = "Produttore riconosciuto ma non nell'elenco USB-IF incluso in WhatCable";
+"The vendor ID %@ (%@) is a recognised maker in the community USB vendor list, but not in the USB-IF list WhatCable bundles." = "L'ID produttore %1$@ (%2$@) corrisponde a un produttore riconosciuto nell'elenco USB della community, ma non nell'elenco USB-IF incluso in WhatCable.";
+"Cable has an e-marker chip, not read on this connection (needs above 3A or Thunderbolt, or try reconnecting the cable)" = "Il cavo ha un chip e-marker, non letto in questa connessione (richiede più di 3A o Thunderbolt, o prova a ricollegare il cavo)";
+
+/* DFP product type labels (DAR-24) */
+"Host" = "Host";
+"Power Brick" = "Alimentatore";
+
+"Battery full" = "Batteria carica";
+"Thunderbolt" = "Thunderbolt";
+
+"System draw" = "Consumo sistema";
+
+"On battery" = "A batteria";
+"Power connected" = "Alimentazione collegata";
+
+"Per-Port Metering Unavailable" = "Misurazione per porta non disponibile";
+"This Mac reports overall power below, but not per-port readings." = "Questo Mac riporta la potenza totale qui sotto, ma non le letture per porta.";
+"Per-port metering isn't available on this Mac." = "In questo Mac la misurazione per porta non è disponibile.";
+"macOS can be slow to report per-port power, sometimes up to a minute." = "macOS può essere lento nel segnalare la potenza per porta, a volte fino a un minuto.";
+"Display connected. No power is being sent out of this port. Incoming power shows in System Power Input below." = "Schermo collegato. Questa porta non eroga alimentazione. L'alimentazione in ingresso è visualizzata qui sotto in 'Ingresso alimentazione sistema'.";
+"A charger is connected here, but your Mac is drawing power through %@. Incoming power shows in System Power Input below." = "Qui è collegato un caricatore, ma il Mac riceve alimentazione tramite %@. L’alimentazione in ingresso è visualizzata qui sotto in “Ingresso alimentazione sistema”.";
+"Connected to %lld Thunderbolt devices: %@" = "Connesso a %1$lld dispositivi Thunderbolt: %2$@";
+"Thunderbolt fabric:" = "Topologia Thunderbolt:";
+"Active tunnels:" = "Tunnel attivi:";
+"Video" = "Video";
+"USB data" = "Dati USB";
+"PCIe data" = "Dati PCIe";
+"adapter %lld" = "scheda %lld";
+
+/* Active-layout contradiction note (DAR-30). The e-marker's ID Header says passive
+   but VDO[3] has the SOP'' Controller Present bit set, which only exists in the
+   active-cable layout. Hedged wording: we describe the structural fact without
+   asserting the cable is fake or definitively active. */
+"E-marker reports passive, but carries active-cable structure (may be a mis-programmed e-marker)" = "L'e-marker segnala la passività, ma con una struttura cavo attiva (potrebbe essere un e-marker programmato in modo errato)";
+"Connected over Thunderbolt" = "Connesso tramite Thunderbolt";
+"Other USB devices" = "Altri dispositivi USB";
+"Reached through a Thunderbolt dock or display, so there's no cable, power, or Thunderbolt data for them." = "Raggiunti tramite un dock o uno schermo Thunderbolt, quindi non ci sono dati sul cavo, alimentazione o Thunderbolt.";
+"Built-in USB ports" = "Porte USB integrate";
+"Plain USB ports behind the Mac's internal hub, so there's no cable, power, or Thunderbolt data for them." = "Porte USB semplici collegate all'hub interno del Mac, quindi non ci sono dati sul cavo, alimentazione o Thunderbolt.";
+
+/* Cable history (DAR-52) */
+"Add this cable" = "Aggiungi questo cavo";
+"Track what this cable delivers over time" = "Monitora nel tempo le prestazioni di questo cavo";
+"Track what this cable delivers over time (Pro)" = "Monitora nel tempo le prestazioni di questo cavo (Pro)";
+"Track what this cable delivers over time. WhatCable records its speed and any drops while it's plugged in, so you can spot a cable that misbehaves." = "Monitora nel tempo le prestazioni di questo cavo. WhatCable registra mentre è collegato la velocità e qualsiasi calo, così puoi individuare un cavo difettoso.";
+"Name" = "Nome";
+"Note (optional)" = "Nota (opzionale)";
+"Add" = "Aggiungi";
+"Save" = "Salva";
+"e.g. Desk TB5 cable" = "es. Cavo TB5 scrivania";
+"e.g. left drawer" = "es. cassetto sinistro";
+"Tracking: %@" = "Monitoraggio: %@";
+"%@: underperformed before" = "%@: prestazioni insufficienti in passato";
+"This cable has dropped below its rating before. Open Saved Cables for the history." = "Questo cavo è già sceso sotto la sua valutazione. Per la cronologia apri 'Cavi salvati'.";
+"Tracking this as %@?" = "Vuoi monitorare come %@?";
+"Is this one of your cables?" = "È uno dei tuoi cavi?";
+"Pick…" = "Scegli…";
+"Don't track" = "Non monitorare";
+"Yes, track as %@" = "Sì, monitora come %@";
+"Track as %@?" = "Vuoi monitorare come %@?";
+"Track this cable?" = "Vuoi monitorare questo cavo?";
+"Saved cables" = "Cavi salvati";
+"What each of your cables has delivered over time" = "Cosa ha fornito nel tempo ciascuno dei tuoi cavi";
+"No saved cables yet" = "Nessun cavo salvato";
+"Open WhatCable, find a connected cable, and choose \"Add this cable\" on its port to start tracking it." = "Per iniziare a monitorarlo apri WhatCable, trova il cavo collegato e scegli 'Aggiungi questo cavo' sulla sua porta.";
+"History" = "Cronologia";
+"Rename" = "Rinomina";
+"Delete" = "Elimina";
+"Delete this cable and its history?" = "Vuoi eliminare questo cavo e la sua cronologia?";
+"Delete %@" = "Elimina %@";
+"This removes the cable and everything recorded for it. It can't be undone." = "Rimuovi il cavo e tutto ciò che è stato registrato. L'operazione non può essere annullata.";
+"Range" = "Intervallo";
+"No history in this range" = "Nessuna cronologia in questo intervallo";
+"Recording happens while the cable is plugged in and WhatCable is running." = "La registrazione avviene mentre il cavo è collegato e WhatCable è in esecuzione.";
+"No speed data" = "Nessun dato di velocità";
+"This cable reported no negotiated link rate while connected." = "Questo cavo mentre era connesso non ha riportato alcuna velocità di collegamento negoziata.";
+"7 days" = "7 giorni";
+"30 days" = "30 giorni";
+"All" = "Tutto";
+"Rename cable" = "Rinomina cavo";
+"Saved Cables" = "Cavi salvati";
+"No history yet" = "Ancora nessuna cronologia";
+"Underperformed once" = "Prestazioni insufficienti una volta";
+"Underperformed %d times" = "Prestazioni insufficienti %d volte";
+"Occasional caution" = "Attenzione occasionale";
+"Performing" = "Funzionante";
+
+/* Built-in display port card (issue #352). English placeholders, community can refine. */
+"%lld displays connected" = "%lld schermi connessi";
+"Built-in %1$@ port %2$lld" = "%1$@ porta %2$lld integrata";
+
+"Display running compressed (DSC) to fit through the link" = "Schermo funzionante in modo compresso (DSC) per adattarsi al collegamento";
+
+"macOS reports your %@'s current mode as %@, which would need more bandwidth than this link carries uncompressed. High-resolution displays use compression (DSC) to fit a mode like this through a link like this. The picture is reaching the display, so this is working as intended." = "macOS riporta che la modalità attuale di %@ è %@, il che richiederebbe una larghezza di banda maggiore di quella disponibile con questo collegamento senza compressione. Gli schermi ad alta risoluzione usano la compressione (DSC) per far passare una modalità come questa attraverso un collegamento come questo. L'immagine sta raggiungendo lo schermo, quindi funziona come previsto.";
+
+/* Issue #393: CIO is a floor on cable capability, not a cap (negotiated-rate resolution). Translated; nuance is community-refinable. */
+"Controller confirms Thunderbolt cable (%@)" = "Il controller conferma il cavo Thunderbolt (%@)";
+"Thunderbolt link active at %@" = "Collegamento Thunderbolt attivo a %@";
+"The cable claims %@, and the link has run at least %@. There's no host or device data to compare against, so we can't tell if anything else is limiting it." = "Il cavo dichiara %1$@, e il collegamento ha funzionato almeno a %2$@. Non ci sono dati sulla porta o sul dispositivo con cui confrontare, quindi non è possibile verificare se qualcos'altro lo sta limitando.";
+
+"Shared controller port" = "Porta condivisa controller";
+
+/* USB-IF certification (DAR-215) */
+"USB-IF certified. Manufacturer: %@, model %@ (%@)" = "Certificato USB-IF. Produttore: %1$@, modello %2$@ (%3$@)";
+"USB-IF certified. Manufacturer: %@, model %@" = "Certificato USB-IF. Produttore: %1$@, modello %2$@";
+"USB-IF certified. Manufacturer: %@ (%@)" = "Certificato USB-IF. Produttore: %1$@ (%2$@)";
+"USB-IF certified. Manufacturer: %@" = "Certificato USB-IF. Produttore: %1$@";
+"The cable's declared maker matches the USB-IF certificate" = "Il produttore dichiarato del cavo corrisponde al certificato USB-IF";
+"Carries a USB-IF certification ID (%@) that isn't in the public registry" = "Riporta un ID certificazione USB-IF (%1$@) non presente nel registro pubblico";
+
+/* Header for a USB controller group in the connected-devices tree. */
+"USB bus" = "Bus USB";
+"USB device, data blocked" = "Dispositivo USB, dati bloccati";
+"macOS is holding data back until you approve the accessory." = "macOS blocca i dati finché non autorizzi l'accessorio.";
+"Video is working. macOS is holding data back until you approve the accessory." = "Il video funziona. macOS blocca i dati finché non autorizzi l'accessorio.";
+"USB device, data blocked · %lldW charger" = "Dispositivo USB, dati bloccati · caricatore %lldW";

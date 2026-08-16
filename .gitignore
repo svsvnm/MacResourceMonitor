@@ -1,0 +1,23 @@
+.DS_Store
+._*
+
+# Local build products
+Mac资源监控.app/
+*.dSYM/
+.build/
+DerivedData/
+
+# Generated icon intermediates
+Assets/AppIcon-generated.png
+Assets/AppIcon-resized.png
+
+# Xcode and editor state
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+.vscode/
+
+# Temporary files
+*.tmp
+*.swp
+*~
