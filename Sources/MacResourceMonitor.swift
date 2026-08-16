@@ -1041,18 +1041,32 @@ struct StableDashboardCardModifier: ViewModifier {
 
 @MainActor
 private final class TransparentWindowBridgeView: NSView {
+    private weak var configuredWindow: NSWindow?
+    private weak var configuredContentView: NSView?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        applyTransparency()
+        if window == nil {
+            configuredWindow = nil
+            configuredContentView = nil
+        } else {
+            configureWindowIfNeeded()
+        }
     }
 
-    func applyTransparency() {
+    func configureWindowIfNeeded() {
         guard let window else { return }
+        let contentView = window.contentView
+        guard configuredWindow !== window || configuredContentView !== contentView else { return }
+
         window.isOpaque = false
         window.backgroundColor = .clear
         window.titlebarAppearsTransparent = true
-        window.contentView?.wantsLayer = true
-        window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+        contentView?.wantsLayer = true
+        contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+
+        configuredWindow = window
+        configuredContentView = contentView
     }
 }
 
@@ -1062,7 +1076,7 @@ private struct WindowTransparencyConfigurator: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: TransparentWindowBridgeView, context: Context) {
-        nsView.applyTransparency()
+        nsView.configureWindowIfNeeded()
     }
 }
 

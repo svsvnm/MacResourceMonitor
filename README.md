@@ -12,13 +12,13 @@
   <img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-111111?logo=apple">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.4-7C3AED">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.4.1-7C3AED">
   <img alt="CI" src="https://github.com/svsvnm/MacResourceMonitor/actions/workflows/ci.yml/badge.svg">
 </p>
 
 Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、磁盘空间分析、安全清理和应用卸载整合到一个 SwiftUI 应用中。主窗口采用 macOS 26 原生 Liquid Glass，关闭窗口后应用仍会留在菜单栏继续采集数据。
 
-> 当前版本：**2.4（Build 38）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
+> 当前版本：**2.4.1（Build 39）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
 
 ## 功能概览
 
@@ -29,8 +29,9 @@ Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、�
 | 存储清理 | 磁盘概览、主要目录排行、500 MB 以上大文件、缓存/日志/Xcode/废纸篓清理 |
 | 应用卸载 | 第三方应用大小排行、Finder 定位、应用本体及精确 Bundle ID 残留移入废纸篓 |
 
-## 2.4 更新
+## 2.4.1 更新
 
+- 窗口透明属性改为每个 `NSWindow` 仅配置一次，避免实时数据刷新反复重置底层 surface，导致前台透明玻璃窗口闪烁。
 - 性能趋势卡片改用与主页指标卡一致的中性表面，同时保留实体渲染和无动画刷新以避免白条。
 - 系统监控圆环明确显示 CPU/内存较高值对应的“系统负载”；应用卸载页移除无实际比例含义的圆环。
 - 主内容区移除额外顶部偏移，使顶部概览卡与左侧边栏外框严格对齐。
@@ -311,8 +312,8 @@ MacResourceMonitor/
 
 ## 版本信息
 
-- App 版本：2.4
-- Build：38
+- App 版本：2.4.1
+- Build：39
 - Bundle ID：`io.github.svsvnm.MacResourceMonitor`
 - 最低系统版本：macOS 26.0
 - 构建架构：arm64
