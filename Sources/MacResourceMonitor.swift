@@ -240,7 +240,7 @@ private final class SystemCollector {
     private let cableCollector = CableCollector()
     private let chargingPowerReader = ChargingPowerReader()
 
-    func collect() -> ResourceSnapshot {
+    func collect(forceCableRefresh: Bool = false) -> ResourceSnapshot {
         var snapshot = ResourceSnapshot()
         snapshot.cpuPercent = sampleCPU()
 
@@ -280,7 +280,7 @@ private final class SystemCollector {
         snapshot.processes = sampleTopProcesses()
         snapshot.chargingPower = chargingPowerReader.read()
 
-        if cableSampleCounter == 0 {
+        if forceCableRefresh || cableSampleCounter == 0 {
             let reading = cableCollector.collect()
             if reading.errorText == nil || cachedCableMonitor.ports.isEmpty {
                 cachedCableMonitor = reading
@@ -347,14 +347,8 @@ private final class SystemCollector {
     }
 
     private func sampleDisk() -> (used: UInt64, total: UInt64) {
-        guard let attributes = try? FileManager.default.attributesOfFileSystem(forPath: "/"),
-              let totalNumber = attributes[.systemSize] as? NSNumber,
-              let freeNumber = attributes[.systemFreeSize] as? NSNumber else {
-            return (0, 0)
-        }
-        let total = totalNumber.uint64Value
-        let free = freeNumber.uint64Value
-        return (total >= free ? total - free : 0, total)
+        let disk = StorageManager.diskUsage()
+        return (disk.used, disk.total)
     }
 
     private func primaryInterface() -> String? {
@@ -404,21 +398,12 @@ private final class SystemCollector {
     }
 
     private func run(_ executable: String, _ arguments: [String]) -> String? {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
+        guard let result = CommandRunner.run(
+            executable,
+            arguments: arguments,
+            timeout: 4
+        ), !result.timedOut, result.terminationStatus == 0 else { return nil }
+        return result.outputString
     }
 
     private func sampleBattery() -> (text: String, percent: Double?, source: String) {
@@ -476,11 +461,14 @@ private final class MonitorModel: ObservableObject {
     @Published var cpuHistory = Array(repeating: 0.0, count: 60)
     @Published var memoryHistory = Array(repeating: 0.0, count: 60)
     @Published var isPaused = false
+    @Published var isRefreshingCable = false
+    @Published var lastCableRefreshAt: Date?
 
     private let collector = SystemCollector()
     private let queue = DispatchQueue(label: "local.mac-resource-monitor.collector", qos: .utility)
     private var timer: Timer?
     private var refreshInProgress = false
+    private var forceCableRefreshPending = false
 
     init() {
         refresh()
@@ -496,12 +484,18 @@ private final class MonitorModel: ObservableObject {
         if !isPaused { refresh() }
     }
 
-    func refresh() {
-        guard !isPaused, !refreshInProgress else { return }
+    func refresh(forceCableRefresh: Bool = false) {
+        if forceCableRefresh {
+            forceCableRefreshPending = true
+            isRefreshingCable = true
+        }
+        guard (!isPaused || forceCableRefreshPending), !refreshInProgress else { return }
+        let shouldForceCableRefresh = forceCableRefreshPending
+        forceCableRefreshPending = false
         refreshInProgress = true
         queue.async { [weak self] in
             guard let self else { return }
-            let next = self.collector.collect()
+            let next = self.collector.collect(forceCableRefresh: shouldForceCableRefresh)
             DispatchQueue.main.async {
                 self.snapshot = next
                 self.cpuHistory.removeFirst()
@@ -509,8 +503,19 @@ private final class MonitorModel: ObservableObject {
                 self.memoryHistory.removeFirst()
                 self.memoryHistory.append(next.memoryPercent)
                 self.refreshInProgress = false
+                if shouldForceCableRefresh {
+                    self.isRefreshingCable = false
+                    self.lastCableRefreshAt = next.updatedAt
+                }
+                if self.forceCableRefreshPending {
+                    self.refresh()
+                }
             }
         }
+    }
+
+    func refreshCableMonitor() {
+        refresh(forceCableRefresh: true)
     }
 }
 
@@ -537,11 +542,6 @@ private struct MetricCard: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                if let percent {
-                    Text("\(Int(percent.rounded()))%")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(color)
-                }
             }
             Text(value)
                 .font(.system(size: 26, weight: .semibold, design: .rounded))
@@ -567,9 +567,30 @@ private struct MetricCard: View {
                     .lineLimit(1)
             }
         }
-        .padding(17)
-        .frame(maxWidth: .infinity, minHeight: 142, alignment: .topLeading)
-        .glassCard(cornerRadius: 20)
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 152, alignment: .topLeading)
+        .glassEffect(
+            .clear.tint(color.opacity(0.055)),
+            in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
+        )
+        .shadow(color: Color.black.opacity(0.035), radius: 14, y: 6)
+    }
+}
+
+private struct ContentSectionLabel: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+            Spacer()
+            Text(subtitle)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 3)
     }
 }
 
@@ -613,7 +634,7 @@ private struct HistoryChart: View {
             .foregroundStyle(.tertiary)
         }
         .padding(18)
-        .glassCard(cornerRadius: 20)
+        .glassCard()
     }
 
     private func chartPath(in size: CGSize, close: Bool) -> Path {
@@ -676,7 +697,7 @@ private struct ProcessTable: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, minHeight: 225, alignment: .topLeading)
-        .glassCard(cornerRadius: 20)
+        .glassCard()
     }
 }
 
@@ -701,7 +722,7 @@ private struct SystemDetails: View {
         .padding(18)
         .frame(width: 300, alignment: .topLeading)
         .frame(minHeight: 225, alignment: .topLeading)
-        .glassCard(cornerRadius: 20)
+        .glassCard()
     }
 
     private func detail(_ label: String, _ value: String, _ symbol: String) -> some View {
@@ -755,7 +776,10 @@ private struct CableSection: View {
                     Spacer()
                 }
                 .padding(16)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .glassEffect(
+                    .clear,
+                    in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
+                )
             } else {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(monitor.ports) { port in
@@ -772,7 +796,7 @@ private struct CableSection: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(18)
-        .glassCard(cornerRadius: 22)
+        .glassCard()
     }
 
     private func liveInputWatts(for port: CablePortSnapshot) -> Double? {
@@ -890,8 +914,10 @@ private struct CablePortCard: View {
         }
         .padding(15)
         .frame(maxWidth: .infinity, minHeight: port.connected ? 178 : 132, alignment: .topLeading)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(accent.opacity(0.18)))
+        .glassEffect(
+            .clear.tint(accent.opacity(port.connected ? 0.055 : 0.025)),
+            in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
+        )
     }
 
     private func cableDetail(_ label: String, _ value: String, _ symbol: String) -> some View {
@@ -913,7 +939,7 @@ private struct CablePortCard: View {
 
 private enum DashboardSection: String, CaseIterable, Identifiable {
     case monitor = "系统监控"
-    case ports = "端口监测"
+    case ports = "接口监测"
     case cleanup = "存储清理"
     case uninstall = "应用卸载"
 
@@ -945,6 +971,21 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
         case .uninstall: return "应用占用与完整移除"
         }
     }
+
+    var eyebrow: String {
+        switch self {
+        case .monitor: return "MAC HEALTH"
+        case .ports: return "CONNECTED DEVICES"
+        case .cleanup: return "STORAGE CARE"
+        case .uninstall: return "APPLICATIONS"
+        }
+    }
+}
+
+enum InterfaceMetrics {
+    static let panelRadius: CGFloat = 28
+    static let cardRadius: CGFloat = 22
+    static let controlRadius: CGFloat = 14
 }
 
 struct GlassCardModifier: ViewModifier {
@@ -952,13 +993,36 @@ struct GlassCardModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .glassEffect(.clear, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: Color.black.opacity(0.035), radius: 14, y: 6)
+    }
+}
+
+struct StableListCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                colorScheme == .dark
+                    ? Color(red: 0.055, green: 0.055, blue: 0.060)
+                    : Color(nsColor: .controlBackgroundColor),
+                in: shape
+            )
+            .overlay(shape.stroke(Color.primary.opacity(0.085), lineWidth: 0.75))
+            .clipShape(shape)
     }
 }
 
 extension View {
-    func glassCard(cornerRadius: CGFloat = 20) -> some View {
+    func glassCard(cornerRadius: CGFloat = InterfaceMetrics.cardRadius) -> some View {
         modifier(GlassCardModifier(cornerRadius: cornerRadius))
+    }
+
+    func stableListCard(cornerRadius: CGFloat = 18) -> some View {
+        modifier(StableListCardModifier(cornerRadius: cornerRadius))
     }
 }
 
@@ -968,21 +1032,45 @@ private struct SidebarNavigationItem: View {
     let action: () -> Void
     @State private var isHovering = false
 
+    @ViewBuilder
     var body: some View {
+        if isSelected {
+            navigationButton
+                .glassEffect(
+                    .clear.tint(section.tint.opacity(0.18)).interactive(),
+                    in: RoundedRectangle(cornerRadius: InterfaceMetrics.controlRadius, style: .continuous)
+                )
+                .onHover { isHovering = $0 }
+        } else {
+            navigationButton
+                .onHover { isHovering = $0 }
+        }
+    }
+
+    private var navigationButton: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(spacing: 11) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(section.tint.opacity(isSelected ? 0.22 : 0.10))
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    section.tint.opacity(isSelected ? 0.30 : 0.11),
+                                    section.tint.opacity(isSelected ? 0.14 : 0.05)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                     Image(systemName: section.symbol)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(isSelected ? section.tint : Color.secondary)
                 }
-                .frame(width: 34, height: 34)
+                .frame(width: 38, height: 38)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(section.rawValue)
-                        .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                        .font(.system(size: 13, weight: isSelected ? .bold : .medium))
                     Text(section.subtitle)
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
@@ -990,29 +1078,23 @@ private struct SidebarNavigationItem: View {
                 }
                 Spacer(minLength: 0)
                 if isSelected {
-                    Circle()
-                        .fill(section.tint)
-                        .frame(width: 6, height: 6)
-                        .shadow(color: section.tint.opacity(0.7), radius: 4)
+                    Capsule()
+                        .fill(section.tint.gradient)
+                        .frame(width: 4, height: 25)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
             .contentShape(Rectangle())
-            .background(Color.white.opacity(isHovering && !isSelected ? 0.06 : 0), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .glassEffect(
-                isSelected ? .regular.tint(section.tint.opacity(0.22)).interactive() : .clear.interactive(),
-                in: RoundedRectangle(cornerRadius: 13, style: .continuous)
-            )
+            .background(Color.primary.opacity(isHovering && !isSelected ? 0.045 : 0), in: RoundedRectangle(cornerRadius: InterfaceMetrics.controlRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
     }
 }
 
 private struct DashboardView: View {
     @ObservedObject var model: MonitorModel
-    @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var storageModel = StorageManager()
     @State private var selectedSection: DashboardSection = .monitor
     @State private var storagePage: StoragePage = .overview
@@ -1020,21 +1102,22 @@ private struct DashboardView: View {
     var body: some View {
         ZStack {
             ambientBackground
-            HStack(spacing: 0) {
+            HStack(spacing: 14) {
                 sidebar
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         contentHeader
-                        GlassEffectContainer(spacing: 14) {
-                            sectionContent
-                        }
+                        sectionContent
                     }
-                    .padding(.horizontal, 28)
-                    .padding(.top, 22)
-                    .padding(.bottom, 32)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 38)
+                    .padding(.bottom, 20)
                 }
+                .scrollClipDisabled(false)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
                 .id("\(selectedSection.id)-\(storagePage.rawValue)")
             }
+            .padding(12)
         }
         .frame(minWidth: 1040, idealWidth: 1200, minHeight: 720, idealHeight: 860)
     }
@@ -1043,7 +1126,9 @@ private struct DashboardView: View {
     private var sectionContent: some View {
         if selectedSection == .monitor {
             VStack(spacing: 16) {
+                    ContentSectionLabel(title: "实时资源", subtitle: "每 2 秒自动更新")
                     LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 12),
                         GridItem(.flexible(), spacing: 12),
                         GridItem(.flexible(), spacing: 12),
                         GridItem(.flexible(), spacing: 12)
@@ -1059,8 +1144,8 @@ private struct DashboardView: View {
                             color: .purple, symbol: "memorychip"
                         )
                         MetricCard(
-                            title: "磁盘", value: formatBytes(model.snapshot.diskUsed),
-                            subtitle: "共 \(formatBytes(model.snapshot.diskTotal))", percent: model.snapshot.diskPercent,
+                            title: "磁盘", value: formatStorageBytes(model.snapshot.diskUsed),
+                            subtitle: "共 \(formatStorageBytes(model.snapshot.diskTotal))", percent: model.snapshot.diskPercent,
                             color: .orange, symbol: "internaldrive"
                         )
                         MetricCard(
@@ -1083,11 +1168,18 @@ private struct DashboardView: View {
                             subtitle: chargingPowerSubtitle(model.snapshot.chargingPower), percent: nil,
                             color: .mint, symbol: "battery.100percent.bolt"
                         )
+                        MetricCard(
+                            title: "电池与供电", value: model.snapshot.batteryText,
+                            subtitle: model.snapshot.powerSource, percent: model.snapshot.batteryPercent,
+                            color: .yellow, symbol: "bolt.circle.fill"
+                        )
                     }
+                    ContentSectionLabel(title: "性能趋势", subtitle: "最近约 2 分钟")
                     HStack(spacing: 12) {
                         HistoryChart(title: "CPU 历史", value: model.snapshot.cpuPercent, values: model.cpuHistory, color: .cyan)
                         HistoryChart(title: "内存历史", value: model.snapshot.memoryPercent, values: model.memoryHistory, color: .purple)
                     }
+                    ContentSectionLabel(title: "活动与详情", subtitle: "本机只读数据")
                     HStack(alignment: .top, spacing: 12) {
                         ProcessTable(rows: model.snapshot.processes)
                         SystemDetails(snapshot: model.snapshot)
@@ -1106,87 +1198,94 @@ private struct DashboardView: View {
     }
 
     private var ambientBackground: some View {
-        GeometryReader { geometry in
-            ZStack {
-                Color(nsColor: .windowBackgroundColor)
-                Circle()
-                    .fill(Color.cyan.opacity(0.12))
-                    .frame(width: geometry.size.width * 0.55)
-                    .blur(radius: 110)
-                    .offset(x: geometry.size.width * 0.30, y: -geometry.size.height * 0.32)
-                Circle()
-                    .fill(Color.purple.opacity(0.10))
-                    .frame(width: geometry.size.width * 0.48)
-                    .blur(radius: 120)
-                    .offset(x: geometry.size.width * 0.36, y: geometry.size.height * 0.40)
-                Circle()
-                    .fill(Color.blue.opacity(0.08))
-                    .frame(width: geometry.size.width * 0.38)
-                    .blur(radius: 100)
-                    .offset(x: -geometry.size.width * 0.25, y: geometry.size.height * 0.14)
+        ZStack {
+            if colorScheme == .dark {
+                Color.black
+                LinearGradient(
+                    colors: [
+                        selectedSection.tint.opacity(0.040),
+                        Color.clear,
+                        Color.purple.opacity(0.018)
+                    ],
+                    startPoint: .topTrailing,
+                    endPoint: .bottomLeading
+                )
+            } else {
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: .windowBackgroundColor),
+                        selectedSection.tint.opacity(0.075),
+                        Color.purple.opacity(0.035),
+                        Color(nsColor: .windowBackgroundColor)
+                    ],
+                    startPoint: .topTrailing,
+                    endPoint: .bottomLeading
+                )
             }
-            .ignoresSafeArea()
         }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.35), value: selectedSection)
     }
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 11) {
+            HStack(spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(LinearGradient(colors: [.cyan, .blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
                     Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 19, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(.white)
                 }
-                .frame(width: 42, height: 42)
-                .shadow(color: Color.blue.opacity(0.28), radius: 12, y: 5)
-                VStack(alignment: .leading, spacing: 1) {
+                .frame(width: 46, height: 46)
+                VStack(alignment: .leading, spacing: 2) {
                     Text("Mac 资源监控")
-                        .font(.system(size: 15, weight: .bold))
-                    Text("本机性能管家")
-                        .font(.system(size: 10))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                    Text("PERSONAL MAC CARE")
+                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .tracking(0.8)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Text("功能")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
-                .padding(.top, 30)
-                .padding(.bottom, 8)
-                .padding(.horizontal, 8)
+            sidebarGroupLabel("概览")
+                .padding(.top, 32)
 
-            GlassEffectContainer(spacing: 8) {
+            GlassEffectContainer(spacing: 7) {
                 VStack(spacing: 5) {
-                    ForEach(DashboardSection.allCases) { section in
-                        SidebarNavigationItem(section: section, isSelected: selectedSection == section) {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                if section == .cleanup && selectedSection != .cleanup {
-                                    storagePage = .overview
-                                }
-                                selectedSection = section
-                            }
-                        }
-                    }
+                    sidebarItem(.monitor)
+                }
+            }
+
+            sidebarGroupLabel("管理工具")
+                .padding(.top, 20)
+
+            GlassEffectContainer(spacing: 7) {
+                VStack(spacing: 5) {
+                    sidebarItem(.ports)
+                    sidebarItem(.cleanup)
+                    sidebarItem(.uninstall)
                 }
             }
 
             Spacer()
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 7) {
                     Circle()
                         .fill(model.isPaused ? Color.orange : Color.green)
                         .frame(width: 7, height: 7)
-                        .shadow(color: (model.isPaused ? Color.orange : Color.green).opacity(0.7), radius: 4)
-                    Text(model.isPaused ? "监控已暂停" : "后台监控运行中")
-                        .font(.system(size: 11, weight: .medium))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(model.isPaused ? "监控已暂停" : "Mac 状态在线")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(model.isPaused ? "点击继续采集数据" : "菜单栏持续监控")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 HStack(alignment: .firstTextBaseline) {
                     Text(String(format: "%.0f%%", model.snapshot.cpuPercent))
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
                     Text("CPU")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -1194,75 +1293,229 @@ private struct DashboardView: View {
                     Text(formatTemperature(model.snapshot.cpuTemperature))
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                 }
-                Button {
-                    dismissWindow(id: "dashboard")
-                } label: {
-                    Label("收起到菜单栏", systemImage: "menubar.rectangle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
             }
-            .padding(13)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .padding(15)
+            .glassEffect(
+                .clear.tint(Color.cyan.opacity(0.045)),
+                in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
+            )
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 17)
         .padding(.top, 46)
-        .padding(.bottom, 18)
-        .frame(width: 226)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(Color.white.opacity(0.12))
-                .frame(width: 1)
+        .padding(.bottom, 17)
+        .frame(width: 232)
+        .glassEffect(
+            .clear,
+            in: RoundedRectangle(cornerRadius: InterfaceMetrics.panelRadius, style: .continuous)
+        )
+    }
+
+    private func sidebarGroupLabel(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .tracking(0.9)
+            .foregroundStyle(Color.primary.opacity(0.72))
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+    }
+
+    private func sidebarItem(_ section: DashboardSection) -> some View {
+        SidebarNavigationItem(section: section, isSelected: selectedSection == section) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if section == .cleanup && selectedSection != .cleanup {
+                    storagePage = .overview
+                }
+                selectedSection = section
+            }
         }
     }
 
     private var contentHeader: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(selectedSection.rawValue)
-                    .font(.system(size: 28, weight: .bold))
-                Text(headerSubtitle)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if selectedSection == .monitor {
-                HStack(spacing: 9) {
-                    HStack(spacing: 6) {
-                        Circle().fill(model.isPaused ? Color.orange : Color.green).frame(width: 7, height: 7)
-                        Text(model.isPaused ? "已暂停" : "实时")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 7)
-                    .glassEffect(.regular, in: Capsule())
-
-                    Button(action: model.togglePause) {
-                        Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
-                            .frame(width: 17, height: 17)
-                    }
-                    .buttonStyle(.glass)
-                    .help(model.isPaused ? "继续监控" : "暂停监控")
-
-                    Button(action: model.refresh) {
-                        Image(systemName: "arrow.clockwise")
-                            .frame(width: 17, height: 17)
-                    }
-                    .buttonStyle(.glass)
-                    .help("立即刷新")
+        ZStack(alignment: .trailing) {
+            HStack(spacing: 24) {
+                ZStack {
+                    Circle()
+                        .fill(selectedSection.tint.opacity(0.10))
+                    Circle()
+                        .stroke(selectedSection.tint.opacity(0.10), lineWidth: 8)
+                        .padding(8)
+                    Circle()
+                        .trim(from: 0, to: max(0.06, heroProgress))
+                        .stroke(
+                            selectedSection.tint.gradient,
+                            style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .padding(8)
+                    Image(systemName: selectedSection.symbol)
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(selectedSection.tint)
                 }
-            } else {
-                Label("只读本机数据", systemImage: "lock.shield")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 7)
-                    .glassEffect(.clear, in: Capsule())
+                .frame(width: 100, height: 100)
+                .shadow(color: selectedSection.tint.opacity(0.28), radius: 22)
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(selectedSection.eyebrow)
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .tracking(1.2)
+                        .foregroundStyle(selectedSection.tint)
+                    Text(heroTitle)
+                        .font(.system(size: 29, weight: .bold, design: .rounded))
+                    Text(headerSubtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+
+                    HStack(spacing: 8) {
+                        Label(heroStatusDetail, systemImage: "checkmark.shield.fill")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.primary.opacity(0.035), in: Capsule())
+                        Text(heroFootnote)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                Spacer(minLength: 20)
+
+                VStack(alignment: .trailing, spacing: 12) {
+                    Text(heroValue)
+                        .font(.system(size: 25, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                    Text(heroValueLabel)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if selectedSection == .monitor {
+                            Button(action: model.togglePause) {
+                                Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
+                                    .frame(width: 16, height: 16)
+                            }
+                            .buttonStyle(.glass)
+                            .help(model.isPaused ? "继续监控" : "暂停监控")
+                        }
+                        Button(action: performHeroAction) {
+                            Label(heroActionTitle, systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(selectedSection.tint)
+                        .disabled(isHeroActionDisabled)
+                    }
+                }
             }
+            .padding(24)
         }
-        .padding(.horizontal, 2)
+        .frame(maxWidth: .infinity, minHeight: 164, alignment: .leading)
+        .glassEffect(
+            .clear.tint(selectedSection.tint.opacity(0.075)),
+            in: RoundedRectangle(cornerRadius: InterfaceMetrics.panelRadius, style: .continuous)
+        )
+        .shadow(color: Color.black.opacity(0.04), radius: 16, y: 7)
+    }
+
+    private var heroTitle: String {
+        switch selectedSection {
+        case .monitor:
+            if model.isPaused { return "监控已暂停" }
+            if model.snapshot.thermalState != "正常" || model.snapshot.cpuPercent >= 85 || model.snapshot.memoryPercent >= 90 {
+                return "Mac 需要关注"
+            }
+            return "Mac 状态良好"
+        case .ports: return "连接状态一目了然"
+        case .cleanup: return "为重要内容留出空间"
+        case .uninstall: return "让应用保持井然有序"
+        }
+    }
+
+    private var heroStatusDetail: String {
+        switch selectedSection {
+        case .monitor: return model.isPaused ? "数据采集已停止" : "后台实时监控"
+        case .ports: return "仅检测，不修改端口"
+        case .cleanup: return "默认只读，清理前确认"
+        case .uninstall: return "应用移入废纸篓"
+        }
+    }
+
+    private var heroFootnote: String {
+        switch selectedSection {
+        case .monitor: return "最近更新 \(model.snapshot.updatedAt.formatted(date: .omitted, time: .shortened))"
+        case .ports:
+            if let date = model.lastCableRefreshAt {
+                return "最近检测 \(date.formatted(date: .omitted, time: .standard))"
+            }
+            return "不会执行 USB 控制传输"
+        case .cleanup: return "个人文件不会自动删除"
+        case .uninstall: return "仅匹配精确 Bundle ID"
+        }
+    }
+
+    private var heroValue: String {
+        switch selectedSection {
+        case .monitor: return formatTemperature(model.snapshot.cpuTemperature)
+        case .ports: return "\(model.snapshot.cableMonitor.activePorts.count) 个"
+        case .cleanup: return formatStorageBytes(storageModel.diskAvailable)
+        case .uninstall: return "\(storageModel.installedApplications.count) 个"
+        }
+    }
+
+    private var heroValueLabel: String {
+        switch selectedSection {
+        case .monitor: return "当前 CPU 温度"
+        case .ports: return "已连接端口"
+        case .cleanup: return "磁盘可用空间"
+        case .uninstall: return "已识别第三方应用"
+        }
+    }
+
+    private var heroProgress: Double {
+        switch selectedSection {
+        case .monitor:
+            return min(1, max(model.snapshot.cpuPercent, model.snapshot.memoryPercent) / 100)
+        case .ports:
+            let total = model.snapshot.cableMonitor.ports.count
+            return total > 0 ? Double(model.snapshot.cableMonitor.activePorts.count) / Double(total) : 0.06
+        case .cleanup:
+            return storageModel.diskTotal > 0 ? min(1, Double(storageModel.diskUsed) / Double(storageModel.diskTotal)) : 0.06
+        case .uninstall:
+            return min(1, Double(storageModel.installedApplications.count) / 100)
+        }
+    }
+
+    private var heroActionTitle: String {
+        switch selectedSection {
+        case .monitor: return "刷新"
+        case .ports: return model.isRefreshingCable ? "检测中" : "重新检测"
+        case .cleanup:
+            return (storageModel.isScanningStorageUsage || storageModel.isScanningCleanup) ? "扫描中" : "扫描空间"
+        case .uninstall: return storageModel.isScanningApplications ? "扫描中" : "扫描应用"
+        }
+    }
+
+    private var isHeroActionDisabled: Bool {
+        switch selectedSection {
+        case .monitor: return false
+        case .ports: return model.isRefreshingCable
+        case .cleanup: return storageModel.isScanningStorageUsage || storageModel.isScanningCleanup || storageModel.isCleaning
+        case .uninstall: return storageModel.isScanningApplications || storageModel.uninstallingAppID != nil
+        }
+    }
+
+    private func performHeroAction() {
+        switch selectedSection {
+        case .monitor:
+            model.refresh()
+        case .ports:
+            model.refreshCableMonitor()
+        case .cleanup:
+            storageModel.scanStorageUsage()
+            storageModel.scanCleanup()
+        case .uninstall:
+            storageModel.scanApplications()
+        }
     }
 
     private var headerSubtitle: String {
@@ -1278,143 +1531,200 @@ private struct DashboardView: View {
 private struct MenuBarPanel: View {
     @ObservedObject var model: MonitorModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 11) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 36, height: 36)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Mac 资源监控")
-                        .font(.system(size: 14, weight: .semibold))
-                    HStack(spacing: 5) {
-                        Circle().fill(model.isPaused ? Color.orange : Color.green).frame(width: 6, height: 6)
-                        Text(model.isPaused ? "已暂停" : "每 2 秒更新")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-            }
-            .padding(14)
+        ZStack {
+            menuBackground
 
-            Divider()
-
-            VStack(spacing: 0) {
-                menuMetric("CPU", String(format: "%.1f%%", model.snapshot.cpuPercent), "cpu", .cyan)
-                Divider().padding(.leading, 38)
-                menuMetric("内存", String(format: "%.1f%%", model.snapshot.memoryPercent), "memorychip", .purple)
-                Divider().padding(.leading, 38)
-                menuMetric("CPU 温度", formatTemperature(model.snapshot.cpuTemperature), "thermometer.medium", .red)
-                Divider().padding(.leading, 38)
-                menuMetric("风扇", formatFanSpeed(model.snapshot.fanSpeed), "fan.fill", .indigo)
-                Divider().padding(.leading, 38)
-                menuMetric("实时充电", formatBatteryChargePower(model.snapshot.chargingPower), "battery.100percent.bolt", .mint)
-                Divider().padding(.leading, 38)
-                menuMetric("网络下载", formatRate(model.snapshot.downloadBytesPerSecond), "arrow.down", .green)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Label("USB-C 与线缆", systemImage: "cable.connector")
-                        .font(.system(size: 11, weight: .semibold))
-                    Spacer()
-                    Text("\(model.snapshot.cableMonitor.activePorts.count)/\(model.snapshot.cableMonitor.ports.count) 已连接")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                }
-
-                if let errorText = model.snapshot.cableMonitor.errorText,
-                   model.snapshot.cableMonitor.ports.isEmpty {
-                    Label(errorText, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.orange)
-                } else if model.snapshot.cableMonitor.activePorts.isEmpty {
-                    Text("没有连接的 USB-C 或雷雳设备")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(model.snapshot.cableMonitor.activePorts.prefix(3)) { port in
-                        HStack(spacing: 8) {
-                            Image(systemName: port.warning == nil ? "cable.connector" : "exclamationmark.triangle.fill")
-                                .frame(width: 14)
-                                .foregroundStyle(port.warning == nil ? Color.blue : Color.orange)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(port.displayName)
-                                    .font(.system(size: 10, weight: .medium))
-                                Text(menuCableSubtitle(port))
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
+            VStack(spacing: 12) {
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Mac 状态")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(model.isPaused ? Color.orange : Color.green)
+                                .frame(width: 7, height: 7)
+                            Text(model.isPaused ? "监控已暂停" : "实时监控中")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
                         }
                     }
+                    Spacer()
+                    Text(model.snapshot.updatedAt.formatted(date: .omitted, time: .shortened))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
                 }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
 
-            Divider()
-
-            HStack(spacing: 8) {
-                Button {
-                    NSApp.setActivationPolicy(.regular)
-                    openWindow(id: "dashboard")
-                    NSApp.activate(ignoringOtherApps: true)
-                } label: {
-                    Label("打开监控面板", systemImage: "macwindow")
-                        .frame(maxWidth: .infinity)
+                HStack(spacing: 10) {
+                    primaryMenuMetric(
+                        title: "CPU 温度",
+                        value: formatTemperature(model.snapshot.cpuTemperature),
+                        subtitle: model.snapshot.hottestCPUTemperature.map { String(format: "最高 %.1f°C", $0) } ?? "传感器不可用",
+                        symbol: "thermometer.medium",
+                        color: .red
+                    )
+                    primaryMenuMetric(
+                        title: "实时网络",
+                        value: "↓ \(formatRate(model.snapshot.downloadBytesPerSecond))",
+                        subtitle: "↑ \(formatRate(model.snapshot.uploadBytesPerSecond)) · \(model.snapshot.networkInterface)",
+                        symbol: "arrow.down.arrow.up",
+                        color: .green
+                    )
                 }
-                .buttonStyle(.glassProminent)
 
-                Button(action: model.togglePause) {
-                    Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
+                HStack(spacing: 8) {
+                    compactMenuMetric("CPU", String(format: "%.0f%%", model.snapshot.cpuPercent), .cyan)
+                    compactMenuMetric("内存", String(format: "%.0f%%", model.snapshot.memoryPercent), .purple)
+                    compactMenuMetric("风扇", compactFanSpeed(model.snapshot.fanSpeed), .indigo)
                 }
-                .buttonStyle(.glass)
-                .help(model.isPaused ? "继续监控" : "暂停监控")
+
+                HStack(spacing: 10) {
+                    Image(systemName: cableStatusSymbol)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(cableStatusColor)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(cableStatusTitle)
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(cableStatusSubtitle)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Text(formatBatteryChargePower(model.snapshot.chargingPower))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.mint)
+                        .monospacedDigit()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .glassEffect(
+                    .clear.tint(Color.blue.opacity(0.045)),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+
+                HStack(spacing: 8) {
+                    Button {
+                        NSApp.setActivationPolicy(.regular)
+                        openWindow(id: "dashboard")
+                        NSApp.activate(ignoringOtherApps: true)
+                    } label: {
+                        Label("打开监控面板", systemImage: "macwindow")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(.cyan)
+
+                    Button(action: model.togglePause) {
+                        Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.glass)
+                    .help(model.isPaused ? "继续监控" : "暂停监控")
+                }
+
+                HStack {
+                    Text("只读监控 · 每 2 秒更新")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("退出") { NSApplication.shared.terminate(nil) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .padding(.horizontal, 2)
             }
             .padding(14)
-
-            Divider()
-
-            HStack {
-                Text("只读监控 · 不控制风扇")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                Button("退出") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
         }
-        .frame(width: 320)
+        .frame(width: 350)
     }
 
-    private func menuMetric(_ title: String, _ value: String, _ symbol: String, _ color: Color) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .frame(width: 16)
-                .foregroundStyle(color)
-            Text(title).font(.system(size: 12)).foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .monospacedDigit()
+    private var menuBackground: some View {
+        ZStack {
+            colorScheme == .dark ? Color.black : Color(nsColor: .windowBackgroundColor)
+            LinearGradient(
+                colors: [Color.cyan.opacity(colorScheme == .dark ? 0.035 : 0.065), Color.clear, Color.purple.opacity(colorScheme == .dark ? 0.018 : 0.035)],
+                startPoint: .topTrailing,
+                endPoint: .bottomLeading
+            )
         }
-        .padding(.vertical, 8)
+        .ignoresSafeArea()
+    }
+
+    private func primaryMenuMetric(title: String, value: String, subtitle: String, symbol: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(color)
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(value)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(subtitle)
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 106, alignment: .topLeading)
+        .glassEffect(
+            .clear.tint(color.opacity(0.060)),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+    }
+
+    private func compactMenuMetric(_ title: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(
+            .clear.tint(color.opacity(0.045)),
+            in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+        )
+    }
+
+    private var cableStatusTitle: String {
+        let active = model.snapshot.cableMonitor.activePorts.count
+        let total = model.snapshot.cableMonitor.ports.count
+        return "接口状态 · \(active)/\(total) 已连接"
+    }
+
+    private var cableStatusSubtitle: String {
+        if let error = model.snapshot.cableMonitor.errorText,
+           model.snapshot.cableMonitor.ports.isEmpty {
+            return error
+        }
+        guard let port = model.snapshot.cableMonitor.activePorts.first else {
+            return "没有连接的 USB-C 或雷雳设备"
+        }
+        return "\(port.displayName) · \(menuCableSubtitle(port))"
+    }
+
+    private var cableStatusSymbol: String {
+        model.snapshot.cableMonitor.activePorts.isEmpty ? "cable.connector.slash" : "cable.connector"
+    }
+
+    private var cableStatusColor: Color {
+        model.snapshot.cableMonitor.errorText == nil ? .blue : .orange
     }
 }
 
@@ -1466,6 +1776,15 @@ private func isDashboardWindow(_ window: NSWindow) -> Bool {
 private func formatBytes(_ bytes: UInt64) -> String {
     let formatter = ByteCountFormatter()
     formatter.countStyle = .memory
+    formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+    formatter.includesUnit = true
+    formatter.isAdaptive = true
+    return formatter.string(fromByteCount: Int64(min(bytes, UInt64(Int64.max))))
+}
+
+private func formatStorageBytes(_ bytes: UInt64) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .file
     formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
     formatter.includesUnit = true
     formatter.isAdaptive = true
@@ -1546,11 +1865,8 @@ private struct MacResourceMonitorApp: App {
         MenuBarExtra {
             MenuBarPanel(model: model)
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "waveform.path.ecg")
-                Text(menuBarSummary(model.snapshot))
-                    .monospacedDigit()
-            }
+            Text(menuBarSummary(model.snapshot))
+                .monospacedDigit()
             .accessibilityLabel("Mac 资源监控 \(menuBarSummary(model.snapshot))")
         }
         .menuBarExtraStyle(.window)
@@ -1558,7 +1874,21 @@ private struct MacResourceMonitorApp: App {
 }
 
 private func menuBarSummary(_ snapshot: ResourceSnapshot) -> String {
-    let cpu = "\(Int(snapshot.cpuPercent.rounded()))%"
-    guard let temperature = snapshot.cpuTemperature else { return cpu }
-    return "\(cpu) · \(Int(temperature.rounded()))°"
+    let temperature = snapshot.cpuTemperature.map { "\(Int($0.rounded()))°" } ?? "--°"
+    return "\(temperature)  ↓\(formatMenuBarRate(snapshot.downloadBytesPerSecond)) ↑\(formatMenuBarRate(snapshot.uploadBytesPerSecond))"
+}
+
+private func formatMenuBarRate(_ bytesPerSecond: Double) -> String {
+    let value = max(0, bytesPerSecond)
+    if value >= 1_000_000_000 { return String(format: "%.1fG", value / 1_000_000_000) }
+    if value >= 10_000_000 { return String(format: "%.0fM", value / 1_000_000) }
+    if value >= 1_000_000 { return String(format: "%.1fM", value / 1_000_000) }
+    if value >= 10_000 { return String(format: "%.0fK", value / 1_000) }
+    if value >= 1_000 { return String(format: "%.1fK", value / 1_000) }
+    return "\(Int(value.rounded()))B"
+}
+
+private func compactFanSpeed(_ value: Double?) -> String {
+    guard let value else { return "--" }
+    return "\(Int(value.rounded())) RPM"
 }

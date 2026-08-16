@@ -207,7 +207,7 @@ final class StorageManager: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
-    private nonisolated static func diskUsage() -> (used: UInt64, total: UInt64, available: UInt64) {
+    nonisolated static func diskUsage() -> (used: UInt64, total: UInt64, available: UInt64) {
         guard let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [
             .volumeTotalCapacityKey,
             .volumeAvailableCapacityForImportantUsageKey,
@@ -376,29 +376,24 @@ final class StorageManager: ObservableObject {
         for index in definitions.indices {
             definitions[index].bytes = sizes[definitions[index].path] ?? 0
         }
-        return definitions.sorted {
-            if $0.bytes != $1.bytes { return $0.bytes > $1.bytes }
-            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-        }
+        return definitions
+            .filter { $0.bytes > 0 }
+            .sorted {
+                if $0.bytes != $1.bytes { return $0.bytes > $1.bytes }
+                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+            .prefix(250)
+            .map { $0 }
     }
 
     private nonisolated static func directorySizes(atPaths paths: [String]) -> [String: UInt64] {
         guard !paths.isEmpty else { return [:] }
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-        process.arguments = ["-sk"] + paths
-        process.qualityOfService = .userInitiated
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return [:]
-        }
-
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard let command = CommandRunner.run(
+            "/usr/bin/du",
+            arguments: ["-sk"] + paths,
+            timeout: 120
+        ) else { return [:] }
+        let output = command.outputString
         var result: [String: UInt64] = [:]
         for line in output.split(separator: "\n") {
             let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: true)
@@ -410,21 +405,12 @@ final class StorageManager: ObservableObject {
 
     private nonisolated static func largeFileInventory() -> [LargeFileItem] {
         let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-        process.arguments = ["-onlyin", home.path, "kMDItemFSSize >= 524288000"]
-        process.qualityOfService = .userInitiated
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return []
-        }
-
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard let command = CommandRunner.run(
+            "/usr/bin/mdfind",
+            arguments: ["-onlyin", home.path, "kMDItemFSSize >= 524288000"],
+            timeout: 20
+        ) else { return [] }
+        let output = command.outputString
         var seen = Set<String>()
         var files: [LargeFileItem] = []
         for line in output.split(separator: "\n") {
@@ -447,23 +433,12 @@ final class StorageManager: ObservableObject {
     private nonisolated static func directoryStats(atPath path: String) -> (bytes: UInt64, items: Int) {
         let root = URL(fileURLWithPath: path, isDirectory: true)
         guard FileManager.default.fileExists(atPath: root.path) else { return (0, 0) }
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-        process.arguments = ["-sk", root.path]
-        process.qualityOfService = .userInitiated
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return (0, 0)
-        }
-        let output = String(
-            data: pipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        guard let command = CommandRunner.run(
+            "/usr/bin/du",
+            arguments: ["-sk", root.path],
+            timeout: 60
+        ) else { return (0, 0) }
+        let output = command.outputString
         let blocks = UInt64(output.split(whereSeparator: { $0 == " " || $0 == "\t" }).first ?? "0") ?? 0
         var bytes = blocks * 1024
         if path.hasSuffix("/Library/Caches") {
@@ -565,8 +540,7 @@ final class StorageManager: ObservableObject {
     }
 
     private nonisolated static func verifiedResidueURLs(for application: InstalledApplication) -> [URL] {
-        guard let bundleID = application.bundleIdentifier,
-              !bundleID.isEmpty,
+        guard let bundleID = validatedBundleIdentifier(application.bundleIdentifier),
               bundleID != Bundle.main.bundleIdentifier else { return [] }
         let home = FileManager.default.homeDirectoryForCurrentUser
         let relativePaths = [
@@ -584,6 +558,19 @@ final class StorageManager: ObservableObject {
         return relativePaths
             .map { home.appendingPathComponent($0).standardizedFileURL }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private nonisolated static func validatedBundleIdentifier(_ rawValue: String?) -> String? {
+        guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.count <= 255 else { return nil }
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count >= 2,
+              parts.allSatisfy({ part in
+                  !part.isEmpty && part.allSatisfy {
+                      $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_"
+                  }
+              }) else { return nil }
+        return value
     }
 
     private nonisolated static func moveApplicationAndResidueToTrash(
@@ -687,15 +674,20 @@ struct StorageCleanupView: View {
 
     private var storageHome: some View {
         VStack(alignment: .leading, spacing: 16) {
-            diskOverview
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("存储工具")
-                    .font(.system(size: 18, weight: .semibold))
-                Text("选择一个工具进入独立页面。以后增加重复文件、下载管理等功能时，只会新增入口卡片。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("选择一个存储任务")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text("先查看，再决定。详细结果分别位于独立页面。")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("3 个工具")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 3)
 
             LazyVGrid(columns: navigationColumns, spacing: 14) {
                 navigationCard(
@@ -739,11 +731,6 @@ struct StorageCleanupView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(action: refreshAll) {
-                    Label((model.isScanningCleanup || model.isScanningStorageUsage) ? "扫描中" : "更新全部", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.glass)
-                .disabled(model.isScanningCleanup || model.isScanningStorageUsage || model.isCleaning)
             }
             .padding(15)
             .glassCard(cornerRadius: 18)
@@ -775,7 +762,9 @@ struct StorageCleanupView: View {
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(color)
+                        .frame(width: 28, height: 28)
+                        .background(color.opacity(0.10), in: Circle())
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -790,7 +779,7 @@ struct StorageCleanupView: View {
                 Spacer(minLength: 2)
 
                 Text(value)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 23, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 Text(detail)
@@ -799,14 +788,15 @@ struct StorageCleanupView: View {
                     .lineLimit(1)
             }
             .padding(17)
-            .frame(maxWidth: .infinity, minHeight: 190, alignment: .topLeading)
-            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: 198, alignment: .topLeading)
+            .contentShape(RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .glassEffect(
-            .regular.tint(color.opacity(0.10)).interactive(),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .clear.tint(color.opacity(0.065)).interactive(),
+            in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
         )
+        .shadow(color: Color.black.opacity(0.035), radius: 14, y: 6)
     }
 
     private var usageSummary: String {
@@ -847,11 +837,6 @@ struct StorageCleanupView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button(action: refreshCurrentPage) {
-                Label(isCurrentPageScanning ? "扫描中" : "重新扫描", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.glass)
-            .disabled(isCurrentPageScanning || model.isCleaning)
         }
         .padding(15)
         .glassCard(cornerRadius: 18)
@@ -873,23 +858,6 @@ struct StorageCleanupView: View {
         case .largeFiles: return "使用 Spotlight 定位 500 MB 以上文件"
         case .cleanup: return "仅处理明确且可重新生成的用户数据"
         }
-    }
-
-    private var isCurrentPageScanning: Bool {
-        selectedPage == .cleanup ? model.isScanningCleanup : model.isScanningStorageUsage
-    }
-
-    private func refreshCurrentPage() {
-        if selectedPage == .cleanup {
-            model.scanCleanup()
-        } else {
-            model.scanStorageUsage()
-        }
-    }
-
-    private func refreshAll() {
-        model.scanCleanup()
-        model.scanStorageUsage()
     }
 
     private var diskOverview: some View {
@@ -925,13 +893,11 @@ struct StorageCleanupView: View {
                 ProgressView("正在统计主要目录…")
                     .frame(maxWidth: .infinity, minHeight: 240)
             } else {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 8) {
                     ForEach(model.storageLocations) { location in
                         storageLocationRow(location)
-                        if location.id != model.storageLocations.last?.id { Divider() }
                     }
                 }
-                .glassCard(cornerRadius: 18)
             }
 
             Text("只读展示 · 受 macOS 隐私保护或尚未下载的云端内容可能无法统计，结果不等同于磁盘总占用。")
@@ -958,13 +924,11 @@ struct StorageCleanupView: View {
                     .frame(maxWidth: .infinity, minHeight: 220)
                     .glassCard(cornerRadius: 18)
             } else {
-                VStack(spacing: 0) {
+                LazyVStack(spacing: 8) {
                     ForEach(model.largeFiles) { file in
                         largeFileRow(file)
-                        if file.id != model.largeFiles.last?.id { Divider() }
                     }
                 }
-                .glassCard(cornerRadius: 18)
             }
 
             Text("大文件仅用于定位，不会进入一键清理范围。")
@@ -979,13 +943,11 @@ struct StorageCleanupView: View {
                 ProgressView("正在统计可安全清理的空间…")
                     .frame(maxWidth: .infinity, minHeight: 240)
             } else {
-                VStack(spacing: 0) {
+                LazyVStack(spacing: 8) {
                     ForEach(model.cleanupCategories) { category in
                         cleanupRow(category)
-                        if category.id != model.cleanupCategories.last?.id { Divider() }
                     }
                 }
-                .glassCard(cornerRadius: 18)
             }
 
             HStack {
@@ -1014,13 +976,11 @@ struct StorageCleanupView: View {
     }
 
     private func storageLocationRow(_ location: StorageLocation) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: location.symbol)
-                .frame(width: 22)
-                .foregroundStyle(.orange)
+        HStack(spacing: 13) {
+            managementListSymbol(location.symbol, color: .orange)
             VStack(alignment: .leading, spacing: 3) {
                 Text(location.title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
                 Text(location.detail)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -1029,37 +989,35 @@ struct StorageCleanupView: View {
             Spacer()
             Text(storageFormatBytes(location.bytes))
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .frame(width: 92, alignment: .trailing)
-            Button("显示") { model.revealStoragePath(location.path) }
+                .frame(width: 90, alignment: .trailing)
+            Button("在 Finder 中显示") { model.revealStoragePath(location.path) }
                 .buttonStyle(.glass)
-                .controlSize(.small)
         }
-        .padding(12)
+        .padding(13)
+        .stableListCard(cornerRadius: 16)
     }
 
     private func largeFileRow(_ file: LargeFileItem) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "doc.fill")
-                .frame(width: 22)
-                .foregroundStyle(.blue)
+        HStack(spacing: 13) {
+            managementListSymbol("doc.fill", color: .blue)
             VStack(alignment: .leading, spacing: 3) {
                 Text(file.name)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                 Text(file.path)
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
             Spacer()
             Text(storageFormatBytes(file.bytes))
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .frame(width: 92, alignment: .trailing)
-            Button("显示") { model.revealStoragePath(file.path) }
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .frame(width: 90, alignment: .trailing)
+            Button("在 Finder 中显示") { model.revealStoragePath(file.path) }
                 .buttonStyle(.glass)
-                .controlSize(.small)
         }
-        .padding(11)
+        .padding(13)
+        .stableListCard(cornerRadius: 16)
     }
 
     private func cleanupRow(_ category: CleanupCategory) -> some View {
@@ -1067,12 +1025,17 @@ struct StorageCleanupView: View {
             model.toggleCategory(category)
         } label: {
             HStack(spacing: 13) {
-                Image(systemName: category.isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundStyle(category.isSelected ? Color.blue : Color.secondary)
-                Image(systemName: category.symbol)
-                    .frame(width: 22)
-                    .foregroundStyle(category.isIrreversible ? .red : .secondary)
+                ZStack(alignment: .bottomTrailing) {
+                    managementListSymbol(
+                        category.symbol,
+                        color: category.isIrreversible ? .red : .purple
+                    )
+                    Image(systemName: category.isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(category.isSelected ? Color.blue : Color.secondary)
+                        .background(Color(nsColor: .controlBackgroundColor), in: Circle())
+                        .offset(x: 3, y: 3)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(category.title).font(.system(size: 13, weight: .medium))
@@ -1102,6 +1065,18 @@ struct StorageCleanupView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .stableListCard(cornerRadius: 16)
+    }
+
+    private func managementListSymbol(_ symbol: String, color: Color) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(color.opacity(0.12))
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(color)
+        }
+        .frame(width: 42, height: 42)
     }
 }
 
@@ -1124,20 +1099,19 @@ struct AppUninstallerView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("应用卸载")
-                        .font(.system(size: 18, weight: .semibold))
-                    Text("应用和精确匹配 Bundle ID 的用户残留会移入废纸篓，可恢复。")
-                        .font(.system(size: 11))
+                    Text("已安装应用")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text("按占用排序 · 卸载内容移入废纸篓，可恢复")
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 TextField("搜索应用或 Bundle ID", text: $query)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 8)
                     .frame(width: 250)
-                Button(action: model.scanApplications) {
-                    Label(model.isScanningApplications ? "扫描中" : "重新扫描", systemImage: "arrow.clockwise")
-                }
-                .disabled(model.isScanningApplications || model.uninstallingAppID != nil)
+                    .glassEffect(.regular, in: Capsule())
             }
 
             if let message = model.uninstallMessage {
@@ -1229,7 +1203,7 @@ struct AppUninstallerView: View {
             .disabled(model.uninstallingAppID != nil)
         }
         .padding(13)
-        .glassCard(cornerRadius: 16)
+        .stableListCard(cornerRadius: 16)
     }
 }
 

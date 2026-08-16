@@ -26,6 +26,7 @@ xcrun swiftc \
   -framework AppKit \
   -framework IOKit \
   -framework SystemConfiguration \
+  "$SCRIPT_DIR/Sources/CommandRunner.swift" \
   "$SCRIPT_DIR/Sources/StorageManager.swift" \
   "$SCRIPT_DIR/Sources/CableMonitor.swift" \
   "$SCRIPT_DIR/Sources/MacResourceMonitor.swift" \

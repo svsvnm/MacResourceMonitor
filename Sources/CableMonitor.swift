@@ -43,40 +43,36 @@ final class CableCollector {
             )
         }
 
-        let process = Process()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.executableURL = helperURL
-        process.arguments = ["--json", "--no-usb-probe"]
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        process.environment = ProcessInfo.processInfo.environment.merging([
+        let environment = ProcessInfo.processInfo.environment.merging([
             "LANG": "zh_CN.UTF-8",
             "LC_ALL": "zh_CN.UTF-8"
         ]) { _, new in new }
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
+        guard let result = CommandRunner.run(
+            helperURL.path,
+            arguments: ["--json", "--no-usb-probe"],
+            environment: environment,
+            timeout: 8
+        ) else {
             return CableMonitorSnapshot(
                 helperAvailable: false,
                 errorText: "无法启动线缆检测组件"
             )
         }
-
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0 else {
-            let message = String(data: errorData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !result.timedOut else {
             return CableMonitorSnapshot(
                 helperAvailable: true,
-                errorText: message?.isEmpty == false ? message : "读取 USB-C 端口失败"
+                errorText: "线缆检测超时，请稍后重试"
+            )
+        }
+        guard result.terminationStatus == 0 else {
+            let message = result.errorString.trimmingCharacters(in: .whitespacesAndNewlines)
+            return CableMonitorSnapshot(
+                helperAvailable: true,
+                errorText: message.isEmpty ? "读取 USB-C 端口失败" : message
             )
         }
 
-        guard let object = try? JSONSerialization.jsonObject(with: data),
+        guard let object = try? JSONSerialization.jsonObject(with: result.standardOutput),
               let root = object as? [String: Any],
               let rawPorts = root["ports"] as? [[String: Any]] else {
             return CableMonitorSnapshot(
