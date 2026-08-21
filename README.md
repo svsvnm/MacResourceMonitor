@@ -12,22 +12,33 @@
   <img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-111111?logo=apple">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.4.1-7C3AED">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.5.0-7C3AED">
   <img alt="CI" src="https://github.com/svsvnm/MacResourceMonitor/actions/workflows/ci.yml/badge.svg">
 </p>
 
-Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、磁盘空间分析、安全清理和应用卸载整合到一个 SwiftUI 应用中。主窗口采用 macOS 26 原生 Liquid Glass，关闭窗口后应用仍会留在菜单栏继续采集数据。
+Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-C/Thunderbolt 端口、磁盘空间分析、安全清理和应用卸载整合到一个 SwiftUI 应用中。主窗口采用 macOS 26 原生 Liquid Glass，关闭窗口后应用仍会留在菜单栏继续采集数据。
 
-> 当前版本：**2.4.1（Build 39）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
+> 当前版本：**2.5.0（Build 40）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
 
 ## 功能概览
 
 | 模块 | 能力 |
 | --- | --- |
 | 系统监控 | CPU、内存、磁盘、网络、CPU 温度、风扇、充电功率、进程排行与历史曲线 |
+| 进程流量 | 按进程实时下载/上传速度、PID、应用图标、搜索、排序和本次监控累计流量 |
 | 接口监测 | USB-C、MagSafe、USB4、Thunderbolt、DisplayPort、USB-PD 和线缆 E-Marker |
 | 存储清理 | 磁盘概览、主要目录排行、500 MB 以上大文件、缓存/日志/Xcode/废纸篓清理 |
 | 应用卸载 | 第三方应用大小排行、Finder 定位、应用本体及精确 Bundle ID 残留移入废纸篓 |
+
+## 2.5.0 更新
+
+- 新增独立“进程流量”面板，按进程显示实时下载、上传、PID 和本次监控累计流量。
+- 使用 macOS 内置 `nettop` 对外部网络接口进行连续只读采样，不需要管理员权限或 Network Extension。
+- 支持进程名/PID 搜索，并可按当前流速、下载、上传或累计流量排序。
+- 自动解析完整进程名并展示正在运行应用的图标；进程结束后短暂保留本次累计记录。
+- 排除本机回环流量，不查看通信内容、不记录域名，也不接管或修改网络连接。
+- 菜单栏弹窗改用明亮的原生 Liquid Glass 采样，移除覆盖整面的深黑遮罩。
+- 菜单栏弹窗加入实时进程流量 Top 5，共享主面板采样结果，不重复启动采集器。
 
 ## 2.4.1 更新
 
@@ -125,6 +136,15 @@ Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、�
 - 展示电池状态、供电方式、系统热状态、开机时长和设备名称。
 - 菜单栏标题固定显示 CPU 温度与网络上下行速度，弹窗内可查看主要指标和已连接接口。
 
+## 进程流量监控
+
+- 使用 macOS 内置 `nettop` 持续采样外部网络接口的真实进程级收发字节。
+- 独立展示每个进程的名称、PID、当前下载速度、当前上传速度和本次监控累计流量。
+- 支持按进程名或 PID 搜索，并按当前流速、下载、上传或累计值排序。
+- 解析完整进程名，并在进程属于图形应用时显示对应应用图标。
+- 普通用户权限即可运行，不安装系统扩展，不启用 VPN，也不会与 Surge 等代理工具争用网络配置。
+- 该模块提供进程聚合统计，不读取域名、远端地址、连接内容或单条请求记录。
+
 ## 实时充电功率
 
 应用读取 `AppleSmartBattery` 的本机电源遥测，并区分以下概念：
@@ -193,6 +213,7 @@ Mac 资源监控将系统性能、硬件传感器、USB-C/Thunderbolt 端口、�
 
 - 关闭主窗口不会退出应用，Dock 图标会隐藏，菜单栏监控继续运行。
 - 菜单栏弹窗可重新打开主面板或退出程序。
+- 菜单栏弹窗展示当前进程流量 Top 5，以及每个进程的实时下载和上传速度。
 - 关闭主窗口不会退出菜单栏监控；需要重新打开时可从菜单栏进入。
 - 只有选择“退出”或按下 `Command + Q` 才会结束进程。
 
@@ -283,6 +304,7 @@ MacResourceMonitor/
 │   ├── CableMonitor.swift
 │   ├── CommandRunner.swift
 │   ├── MacResourceMonitor.swift
+│   ├── ProcessNetworkMonitor.swift
 │   └── StorageManager.swift
 ├── Info.plist
 ├── THIRD_PARTY_NOTICES.md
@@ -292,6 +314,7 @@ MacResourceMonitor/
 - `MacResourceMonitor.swift`：系统采集、SMC、电源遥测、Liquid Glass 主界面、菜单栏和应用生命周期。
 - `CableMonitor.swift`：WhatCable helper 的安全暂存、执行、JSON 解析和端口快照。
 - `CommandRunner.swift`：隔离外部命令输出并提供强制超时，避免管道阻塞采集任务。
+- `ProcessNetworkMonitor.swift`：`nettop` 进程流量采样、累计模型、搜索排序与流量面板。
 - `StorageManager.swift`：磁盘占用、目录/大文件分析、清理分类和应用卸载。
 - `build.sh`：可重复执行的 arm64 App Bundle 构建与签名脚本。
 
@@ -301,6 +324,8 @@ MacResourceMonitor/
 - 普通 3A 线缆、仅充电线缆或某些转接器可能不提供 E-Marker 信息。
 - Spotlight 未索引、隐私受限或纯云端文件可能不会进入大文件列表。
 - `du` 只能统计当前用户有权限读取的目录。
+- 进程流量来自 `nettop` 当前可见的外部接口 socket；短于采样周期的瞬时连接可能不会形成完整累计记录，且不包含本机回环通信。
+- 进程流量面板不提供 Surge 式域名、请求和连接规则视图；实现这类数据路径级能力需要 Network Extension entitlement 和系统扩展签名。
 - 当前仅构建 arm64，不支持 Intel Mac。
 
 ## 第三方组件
@@ -312,8 +337,8 @@ MacResourceMonitor/
 
 ## 版本信息
 
-- App 版本：2.4.1
-- Build：39
+- App 版本：2.5.0
+- Build：40
 - Bundle ID：`io.github.svsvnm.MacResourceMonitor`
 - 最低系统版本：macOS 26.0
 - 构建架构：arm64

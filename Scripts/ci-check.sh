@@ -36,6 +36,7 @@ xcrun swiftc \
   -framework IOKit \
   -framework SystemConfiguration \
   Sources/CommandRunner.swift \
+  Sources/ProcessNetworkMonitor.swift \
   Sources/StorageManager.swift \
   Sources/CableMonitor.swift \
   Sources/MacResourceMonitor.swift
