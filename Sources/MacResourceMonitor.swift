@@ -933,6 +933,7 @@ private struct CablePortCard: View {
 
 private enum DashboardSection: String, CaseIterable, Identifiable {
     case monitor = "系统监控"
+    case traffic = "进程流量"
     case ports = "接口监测"
     case cleanup = "存储清理"
     case uninstall = "应用卸载"
@@ -942,6 +943,7 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .monitor: return "gauge.with.dots.needle.50percent"
+        case .traffic: return "point.3.connected.trianglepath.dotted"
         case .ports: return "cable.connector"
         case .cleanup: return "internaldrive"
         case .uninstall: return "square.grid.2x2"
@@ -955,6 +957,7 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .monitor: return "性能与硬件状态"
+        case .traffic: return "实时进程上下行"
         case .ports: return "USB-C、雷雳与供电"
         case .cleanup: return "空间分析与安全清理"
         case .uninstall: return "应用占用与完整移除"
@@ -964,6 +967,7 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
     var eyebrow: String {
         switch self {
         case .monitor: return "MAC HEALTH"
+        case .traffic: return "PROCESS TRAFFIC"
         case .ports: return "CONNECTED DEVICES"
         case .cleanup: return "STORAGE CARE"
         case .uninstall: return "APPLICATIONS"
@@ -1153,6 +1157,7 @@ private struct SidebarNavigationItem: View {
 
 private struct DashboardView: View {
     @ObservedObject var model: MonitorModel
+    @ObservedObject var processNetworkModel: ProcessNetworkMonitor
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var storageModel = StorageManager()
     @State private var selectedSection: DashboardSection = .monitor
@@ -1244,6 +1249,8 @@ private struct DashboardView: View {
                         SystemDetails(snapshot: model.snapshot)
                     }
             }
+        } else if selectedSection == .traffic {
+            ProcessTrafficView(model: processNetworkModel)
         } else if selectedSection == .ports {
             PortMonitorView(
                 monitor: model.snapshot.cableMonitor,
@@ -1313,6 +1320,7 @@ private struct DashboardView: View {
             GlassEffectContainer(spacing: 7) {
                 VStack(spacing: 5) {
                     sidebarItem(.monitor)
+                    sidebarItem(.traffic)
                 }
             }
 
@@ -1486,6 +1494,7 @@ private struct DashboardView: View {
                 return "Mac 需要关注"
             }
             return "Mac 状态良好"
+        case .traffic: return "每个进程的流量都看得见"
         case .ports: return "连接状态一目了然"
         case .cleanup: return "为重要内容留出空间"
         case .uninstall: return "让应用保持井然有序"
@@ -1495,6 +1504,7 @@ private struct DashboardView: View {
     private var heroStatusDetail: String {
         switch selectedSection {
         case .monitor: return "后台实时监控"
+        case .traffic: return "系统原生只读采样"
         case .ports: return "仅检测，不修改端口"
         case .cleanup: return "默认只读，清理前确认"
         case .uninstall: return "应用移入废纸篓"
@@ -1504,6 +1514,11 @@ private struct DashboardView: View {
     private var heroFootnote: String {
         switch selectedSection {
         case .monitor: return "最近更新 \(model.snapshot.updatedAt.formatted(date: .omitted, time: .shortened))"
+        case .traffic:
+            if let date = processNetworkModel.lastUpdatedAt {
+                return "最近采样 \(date.formatted(date: .omitted, time: .standard))"
+            }
+            return processNetworkModel.errorText ?? "正在建立流量基线"
         case .ports:
             if let date = model.lastCableRefreshAt {
                 return "最近检测 \(date.formatted(date: .omitted, time: .standard))"
@@ -1517,6 +1532,7 @@ private struct DashboardView: View {
     private var heroValue: String {
         switch selectedSection {
         case .monitor: return formatTemperature(model.snapshot.cpuTemperature)
+        case .traffic: return "↓ \(formatRate(processNetworkModel.downloadBytesPerSecond))"
         case .ports: return "\(model.snapshot.cableMonitor.activePorts.count) 个"
         case .cleanup: return formatStorageBytes(storageModel.diskAvailable)
         case .uninstall: return "\(storageModel.installedApplications.count) 个"
@@ -1526,6 +1542,7 @@ private struct DashboardView: View {
     private var heroValueLabel: String {
         switch selectedSection {
         case .monitor: return "当前 CPU 温度"
+        case .traffic: return "↑ \(formatRate(processNetworkModel.uploadBytesPerSecond))"
         case .ports: return "已连接端口"
         case .cleanup: return "磁盘可用空间"
         case .uninstall: return "已识别第三方应用"
@@ -1536,6 +1553,9 @@ private struct DashboardView: View {
         switch selectedSection {
         case .monitor:
             return min(1, max(model.snapshot.cpuPercent, model.snapshot.memoryPercent) / 100)
+        case .traffic:
+            let total = processNetworkModel.downloadBytesPerSecond + processNetworkModel.uploadBytesPerSecond
+            return total > 0 ? min(1, log10(total + 1) / 8) : 0.06
         case .ports:
             let total = model.snapshot.cableMonitor.ports.count
             return total > 0 ? Double(model.snapshot.cableMonitor.activePorts.count) / Double(total) : 0.06
@@ -1549,6 +1569,7 @@ private struct DashboardView: View {
     private var heroActionTitle: String {
         switch selectedSection {
         case .monitor: return "刷新"
+        case .traffic: return "清零累计"
         case .ports: return model.isRefreshingCable ? "检测中" : "重新检测"
         case .cleanup:
             return (storageModel.isScanningStorageUsage || storageModel.isScanningCleanup) ? "扫描中" : "扫描空间"
@@ -1559,6 +1580,7 @@ private struct DashboardView: View {
     private var isHeroActionDisabled: Bool {
         switch selectedSection {
         case .monitor: return false
+        case .traffic: return false
         case .ports: return model.isRefreshingCable
         case .cleanup: return storageModel.isScanningStorageUsage || storageModel.isScanningCleanup || storageModel.isCleaning
         case .uninstall: return storageModel.isScanningApplications || storageModel.uninstallingAppID != nil
@@ -1569,6 +1591,8 @@ private struct DashboardView: View {
         switch selectedSection {
         case .monitor:
             model.refresh()
+        case .traffic:
+            processNetworkModel.resetSessionTotals()
         case .ports:
             model.refreshCableMonitor()
         case .cleanup:
@@ -1582,6 +1606,7 @@ private struct DashboardView: View {
     private var headerSubtitle: String {
         switch selectedSection {
         case .monitor: return "实时观察处理器、内存、温度、风扇和网络状态 · 每 2 秒刷新"
+        case .traffic: return "按进程查看实时下载、上传与本次监控累计流量 · 不接管网络连接"
         case .ports: return "检查 USB-C、Thunderbolt、DisplayPort 与充电协商状态"
         case .cleanup: return "找出空间大户，安全清理可重新生成的数据"
         case .uninstall: return "按占用排序管理第三方应用及精确匹配的用户残留"
@@ -1591,6 +1616,7 @@ private struct DashboardView: View {
 
 private struct MenuBarPanel: View {
     @ObservedObject var model: MonitorModel
+    @ObservedObject var processNetworkModel: ProcessNetworkMonitor
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
 
@@ -1641,6 +1667,8 @@ private struct MenuBarPanel: View {
                     compactMenuMetric("内存", String(format: "%.0f%%", model.snapshot.memoryPercent))
                     compactMenuMetric("风扇", compactFanSpeed(model.snapshot.fanSpeed))
                 }
+
+                processTrafficRanking
 
                 HStack(spacing: 10) {
                     Image(systemName: cableStatusSymbol)
@@ -1696,22 +1724,103 @@ private struct MenuBarPanel: View {
     private var menuBackground: some View {
         ZStack {
             Rectangle().fill(.ultraThinMaterial)
-            if colorScheme == .dark {
-                Color.black.opacity(0.68)
-            } else {
-                Color.white.opacity(0.32)
-            }
             LinearGradient(
                 colors: [
-                    Color.white.opacity(colorScheme == .dark ? 0.025 : 0.10),
-                    Color.clear,
-                    Color.black.opacity(colorScheme == .dark ? 0.040 : 0.020)
+                    Color.white.opacity(colorScheme == .dark ? 0.14 : 0.22),
+                    InterfacePalette.accent.opacity(colorScheme == .dark ? 0.055 : 0.035),
+                    Color.white.opacity(colorScheme == .dark ? 0.045 : 0.10)
                 ],
                 startPoint: .topTrailing,
                 endPoint: .bottomLeading
             )
         }
         .ignoresSafeArea()
+    }
+
+    private var topTrafficRows: [ProcessTrafficRow] {
+        Array(processNetworkModel.rows
+            .sorted { $0.currentBytesPerSecond > $1.currentBytesPerSecond }
+            .prefix(5))
+    }
+
+    private var processTrafficRanking: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.green)
+                Text("进程流量 Top 5")
+                    .font(.system(size: 10, weight: .semibold))
+                Spacer()
+                Text("↓\(formatMenuBarRate(processNetworkModel.downloadBytesPerSecond))  ↑\(formatMenuBarRate(processNetworkModel.uploadBytesPerSecond))")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            if topTrafficRows.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text(processNetworkModel.errorText ?? "正在建立进程流量基线")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .frame(height: 24)
+            } else {
+                ForEach(Array(topTrafficRows.enumerated()), id: \.element.id) { index, row in
+                    menuTrafficRow(row, rank: index + 1)
+                }
+            }
+        }
+        .padding(12)
+        .glassCard(cornerRadius: 16)
+    }
+
+    private func menuTrafficRow(_ row: ProcessTrafficRow, rank: Int) -> some View {
+        HStack(spacing: 7) {
+            Text("\(rank)")
+                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                .foregroundStyle(.tertiary)
+                .frame(width: 10, alignment: .trailing)
+
+            menuTrafficIcon(pid: row.pid, name: row.name)
+
+            Text(row.name)
+                .font(.system(size: 9, weight: .medium))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("↓\(formatMenuBarRate(row.downloadBytesPerSecond))")
+                .foregroundStyle(.green)
+                .frame(width: 46, alignment: .trailing)
+            Text("↑\(formatMenuBarRate(row.uploadBytesPerSecond))")
+                .foregroundStyle(.blue)
+                .frame(width: 46, alignment: .trailing)
+        }
+        .font(.system(size: 8, weight: .medium, design: .rounded))
+        .monospacedDigit()
+        .padding(.vertical, 1)
+    }
+
+    @ViewBuilder
+    private func menuTrafficIcon(pid: Int32, name: String) -> some View {
+        if let icon = NSRunningApplication(processIdentifier: pid_t(pid))?.icon {
+            Image(nsImage: icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
+        } else {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(InterfacePalette.iconSurface)
+                .overlay {
+                    Text(String(name.prefix(1)).uppercased())
+                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 18, height: 18)
+        }
     }
 
     private func primaryMenuMetric(title: String, value: String, subtitle: String, symbol: String, color: Color) -> some View {
@@ -1905,10 +2014,11 @@ private func formatUptime(_ interval: TimeInterval) -> String {
 private struct MacResourceMonitorApp: App {
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model = MonitorModel()
+    @StateObject private var processNetworkModel = ProcessNetworkMonitor()
 
     var body: some Scene {
         Window("Mac 资源监控", id: "dashboard") {
-            DashboardView(model: model)
+            DashboardView(model: model, processNetworkModel: processNetworkModel)
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -1916,7 +2026,7 @@ private struct MacResourceMonitorApp: App {
         }
 
         MenuBarExtra {
-            MenuBarPanel(model: model)
+            MenuBarPanel(model: model, processNetworkModel: processNetworkModel)
         } label: {
             Text(menuBarSummary(model.snapshot))
                 .monospacedDigit()
