@@ -1,0 +1,53 @@
+name: Build and upload release asset
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v2.5.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: Build and upload arm64 app
+    runs-on: macos-26
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Validate tag and metadata
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          version="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
+          if [[ "$RELEASE_TAG" != "v${version}" ]]; then
+            echo "Tag ${RELEASE_TAG} does not match Info.plist version ${version}." >&2
+            exit 1
+          fi
+
+      - name: Run project checks
+        run: ./Scripts/ci-check.sh
+
+      - name: Package and verify app
+        run: |
+          version="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
+          archive="MacResourceMonitor-${version}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "Mac资源监控.app" "$archive"
+          unzip -t "$archive"
+          shasum -a 256 "$archive"
+
+      - name: Upload asset to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          version="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
+          gh release upload "$RELEASE_TAG" "MacResourceMonitor-${version}.zip" --clobber
