@@ -12,13 +12,13 @@
   <img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-111111?logo=apple">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.5.0-7C3AED">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.5.1-7C3AED">
   <img alt="CI" src="https://github.com/svsvnm/MacResourceMonitor/actions/workflows/ci.yml/badge.svg">
 </p>
 
-Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-C/Thunderbolt 端口、磁盘空间分析、安全清理和应用卸载整合到一个 SwiftUI 应用中。主窗口采用 macOS 26 原生 Liquid Glass，关闭窗口后应用仍会留在菜单栏继续采集数据。
+Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-C/Thunderbolt 端口、磁盘空间分析、安全清理和应用卸载整合到一个 SwiftUI 应用中。主窗口采用 macOS 26 原生 Liquid Glass，关闭窗口后应用仍会留在菜单栏继续采集轻量级系统数据；进程流量仅在菜单弹窗或流量页面可见时采样。
 
-> 当前版本：**2.5.0（Build 40）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
+> 当前版本：**2.5.1（Build 41）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
 
 ## 功能概览
 
@@ -29,6 +29,15 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 | 接口监测 | USB-C、MagSafe、USB4、Thunderbolt、DisplayPort、USB-PD 和线缆 E-Marker |
 | 存储清理 | 磁盘概览、主要目录排行、500 MB 以上大文件、缓存/日志/Xcode/废纸篓清理 |
 | 应用卸载 | 第三方应用大小排行、Finder 定位、应用本体及精确 Bundle ID 残留移入废纸篓 |
+
+## 2.5.1 更新
+
+- 修复进程流量监控造成的高 CPU 与耗电问题：不再让 `nettop` 连续运行，改为约每 2 秒读取一次累计字节快照并在应用内计算差值。
+- 进程流量仅在菜单弹窗或主面板流量页面可见时采样；两处都关闭后停止采集并清除实时速率，不统计隐藏期间流量。
+- 合并进程流量的行、速率、累计值和状态为一次发布，避免同一采样周期多次触发 SwiftUI 刷新。
+- 重构菜单栏刷新链：系统与流量数据合并为单一展示快照，菜单稳定运行时每 2 秒只提交一次整窗状态。
+- 菜单只保留一层 Liquid Glass 背景，内部指标改用稳定半透明表面，降低 WindowServer/GPU 的重复合成开销。
+- 修复快速关闭、重开流量页面时旧定时器可能继续触发的问题，并强化 `nettop` 超时与异常退出处理。
 
 ## 2.5.0 更新
 
@@ -138,7 +147,7 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 
 ## 进程流量监控
 
-- 使用 macOS 内置 `nettop` 持续采样外部网络接口的真实进程级收发字节。
+- 使用 macOS 内置 `nettop` 按需读取外部网络接口的真实进程级累计收发字节；菜单弹窗或流量页面打开时约每 2 秒获取一次瞬时快照并在应用内计算差值，两处都关闭后停止。
 - 独立展示每个进程的名称、PID、当前下载速度、当前上传速度和本次监控累计流量。
 - 支持按进程名或 PID 搜索，并按当前流速、下载、上传或累计值排序。
 - 解析完整进程名，并在进程属于图形应用时显示对应应用图标。
@@ -211,9 +220,10 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 
 ## 菜单栏与窗口行为
 
-- 关闭主窗口不会退出应用，Dock 图标会隐藏，菜单栏监控继续运行。
+- 关闭主窗口不会退出应用，Dock 图标会隐藏，菜单栏轻量级系统监控继续运行；进程流量在菜单弹窗关闭后停止采样。
 - 菜单栏弹窗可重新打开主面板或退出程序。
 - 菜单栏弹窗展示当前进程流量 Top 5，以及每个进程的实时下载和上传速度。
+- 菜单弹窗的系统指标和进程流量 Top 5 均约每 2 秒更新，主面板进程流量同样约每 2 秒更新。
 - 关闭主窗口不会退出菜单栏监控；需要重新打开时可从菜单栏进入。
 - 只有选择“退出”或按下 `Command + Q` 才会结束进程。
 
@@ -234,6 +244,12 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 - Apple Silicon（当前构建目标为 `arm64-apple-macos26.0`）。
 - Xcode 26 Command Line Tools 或完整 Xcode 26，用于从源码构建。
 - 温度、风扇、线缆和电源字段取决于具体 Mac 型号与 macOS 是否公开对应数据。
+
+## 下载与安装
+
+从 [GitHub Releases](https://github.com/svsvnm/MacResourceMonitor/releases/latest) 下载 `MacResourceMonitor-2.5.1.zip`，解压后将“Mac资源监控.app”拖入“应用程序”目录。
+
+Release 压缩包由 GitHub Actions 在 macOS 26 构建机上从对应标签源码生成并完成 ad-hoc 签名。目前未进行 Apple Developer ID 签名或公证；如 Gatekeeper 阻止首次打开，请在 Finder 中右键应用并选择“打开”，确认来源后继续。
 
 ## 从源码构建
 
@@ -286,7 +302,7 @@ open "/Applications/Mac资源监控.app"
 codesign --verify --deep --strict --verbose=2 "Mac资源监控.app"
 ```
 
-> 仓库不提交构建生成的 `.app`。从 GitHub 下载源码后在本机运行 `build.sh`，可避免将未经公证的预编译程序作为发布包分发。
+> 仓库不提交构建生成的 `.app`；正式 Release 压缩包由 GitHub Actions 从对应标签源码重新构建并上传。
 
 ## 项目结构
 
@@ -324,7 +340,7 @@ MacResourceMonitor/
 - 普通 3A 线缆、仅充电线缆或某些转接器可能不提供 E-Marker 信息。
 - Spotlight 未索引、隐私受限或纯云端文件可能不会进入大文件列表。
 - `du` 只能统计当前用户有权限读取的目录。
-- 进程流量来自 `nettop` 当前可见的外部接口 socket；短于采样周期的瞬时连接可能不会形成完整累计记录，且不包含本机回环通信。
+- 进程流量来自 `nettop` 当前可见的外部接口 socket，仅在菜单弹窗或流量页面可见时采样；短于采样周期或发生在界面隐藏期间的连接不会形成完整累计记录，且不包含本机回环通信。
 - 进程流量面板不提供 Surge 式域名、请求和连接规则视图；实现这类数据路径级能力需要 Network Extension entitlement 和系统扩展签名。
 - 当前仅构建 arm64，不支持 Intel Mac。
 
@@ -337,8 +353,8 @@ MacResourceMonitor/
 
 ## 版本信息
 
-- App 版本：2.5.0
-- Build：40
+- App 版本：2.5.1
+- Build：41
 - Bundle ID：`io.github.svsvnm.MacResourceMonitor`
 - 最低系统版本：macOS 26.0
 - 构建架构：arm64
