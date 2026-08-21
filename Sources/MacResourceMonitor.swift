@@ -1043,6 +1043,22 @@ struct StableDashboardCardModifier: ViewModifier {
     }
 }
 
+struct StableMenuCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                Color.white.opacity(colorScheme == .dark ? 0.055 : 0.30),
+                in: shape
+            )
+            .overlay(shape.stroke(InterfacePalette.cardStroke, lineWidth: 0.75))
+            .clipShape(shape)
+    }
+}
+
 @MainActor
 private final class TransparentWindowBridgeView: NSView {
     private weak var configuredWindow: NSWindow?
@@ -1095,6 +1111,10 @@ extension View {
 
     func stableDashboardCard(cornerRadius: CGFloat = InterfaceMetrics.cardRadius) -> some View {
         modifier(StableDashboardCardModifier(cornerRadius: cornerRadius))
+    }
+
+    func stableMenuCard(cornerRadius: CGFloat = 16) -> some View {
+        modifier(StableMenuCardModifier(cornerRadius: cornerRadius))
     }
 }
 
@@ -1614,11 +1634,17 @@ private struct DashboardView: View {
     }
 }
 
+private struct MenuBarPresentationState {
+    var resource = ResourceSnapshot()
+    var traffic = ProcessTrafficDisplayState()
+}
+
 private struct MenuBarPanel: View {
-    @ObservedObject var model: MonitorModel
-    @ObservedObject var processNetworkModel: ProcessNetworkMonitor
+    let model: MonitorModel
+    let processNetworkModel: ProcessNetworkMonitor
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
+    @State private var presentation = MenuBarPresentationState()
 
     var body: some View {
         ZStack {
@@ -1639,7 +1665,7 @@ private struct MenuBarPanel: View {
                         }
                     }
                     Spacer()
-                    Text(model.snapshot.updatedAt.formatted(date: .omitted, time: .shortened))
+                    Text(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.tertiary)
                         .monospacedDigit()
@@ -1648,24 +1674,24 @@ private struct MenuBarPanel: View {
                 HStack(spacing: 10) {
                     primaryMenuMetric(
                         title: "CPU 温度",
-                        value: formatTemperature(model.snapshot.cpuTemperature),
-                        subtitle: model.snapshot.hottestCPUTemperature.map { String(format: "最高 %.1f°C", $0) } ?? "传感器不可用",
+                        value: formatTemperature(snapshot.cpuTemperature),
+                        subtitle: snapshot.hottestCPUTemperature.map { String(format: "最高 %.1f°C", $0) } ?? "传感器不可用",
                         symbol: "thermometer.medium",
                         color: .red
                     )
                     primaryMenuMetric(
                         title: "实时网络",
-                        value: "↓ \(formatRate(model.snapshot.downloadBytesPerSecond))",
-                        subtitle: "↑ \(formatRate(model.snapshot.uploadBytesPerSecond)) · \(model.snapshot.networkInterface)",
+                        value: "↓ \(formatRate(snapshot.downloadBytesPerSecond))",
+                        subtitle: "↑ \(formatRate(snapshot.uploadBytesPerSecond)) · \(snapshot.networkInterface)",
                         symbol: "arrow.down.arrow.up",
                         color: .green
                     )
                 }
 
                 HStack(spacing: 8) {
-                    compactMenuMetric("CPU", String(format: "%.0f%%", model.snapshot.cpuPercent))
-                    compactMenuMetric("内存", String(format: "%.0f%%", model.snapshot.memoryPercent))
-                    compactMenuMetric("风扇", compactFanSpeed(model.snapshot.fanSpeed))
+                    compactMenuMetric("CPU", String(format: "%.0f%%", snapshot.cpuPercent))
+                    compactMenuMetric("内存", String(format: "%.0f%%", snapshot.memoryPercent))
+                    compactMenuMetric("风扇", compactFanSpeed(snapshot.fanSpeed))
                 }
 
                 processTrafficRanking
@@ -1684,14 +1710,14 @@ private struct MenuBarPanel: View {
                             .lineLimit(1)
                     }
                     Spacer()
-                    Text(formatBatteryChargePower(model.snapshot.chargingPower))
+                    Text(formatBatteryChargePower(snapshot.chargingPower))
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(.mint)
                         .monospacedDigit()
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .glassCard(cornerRadius: 14)
+                .stableMenuCard(cornerRadius: 14)
 
                 Button {
                     NSApp.setActivationPolicy(.regular)
@@ -1701,7 +1727,7 @@ private struct MenuBarPanel: View {
                     Label("打开监控面板", systemImage: "macwindow")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.borderedProminent)
                 .tint(InterfacePalette.accent)
 
                 HStack {
@@ -1719,7 +1745,24 @@ private struct MenuBarPanel: View {
         }
         .frame(width: 350)
         .background(WindowTransparencyConfigurator())
+        .onAppear {
+            presentation = MenuBarPresentationState(
+                resource: model.snapshot,
+                traffic: processNetworkModel.displayState
+            )
+            processNetworkModel.setActive(true, for: .menuBar)
+        }
+        .onDisappear { processNetworkModel.setActive(false, for: .menuBar) }
+        .onReceive(processNetworkModel.$displayState) { traffic in
+            presentation = MenuBarPresentationState(
+                resource: model.snapshot,
+                traffic: traffic
+            )
+        }
     }
+
+    private var snapshot: ResourceSnapshot { presentation.resource }
+    private var menuTraffic: ProcessTrafficDisplayState { presentation.traffic }
 
     private var menuBackground: some View {
         ZStack {
@@ -1738,7 +1781,7 @@ private struct MenuBarPanel: View {
     }
 
     private var topTrafficRows: [ProcessTrafficRow] {
-        Array(processNetworkModel.rows
+        Array(menuTraffic.rows
             .sorted { $0.currentBytesPerSecond > $1.currentBytesPerSecond }
             .prefix(5))
     }
@@ -1752,7 +1795,7 @@ private struct MenuBarPanel: View {
                 Text("进程流量 Top 5")
                     .font(.system(size: 10, weight: .semibold))
                 Spacer()
-                Text("↓\(formatMenuBarRate(processNetworkModel.downloadBytesPerSecond))  ↑\(formatMenuBarRate(processNetworkModel.uploadBytesPerSecond))")
+                Text("↓\(formatMenuBarRate(menuTraffic.downloadBytesPerSecond))  ↑\(formatMenuBarRate(menuTraffic.uploadBytesPerSecond))")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -1762,7 +1805,7 @@ private struct MenuBarPanel: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.mini)
-                    Text(processNetworkModel.errorText ?? "正在建立进程流量基线")
+                    Text(menuTraffic.errorText ?? "正在建立进程流量基线")
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -1775,7 +1818,7 @@ private struct MenuBarPanel: View {
             }
         }
         .padding(12)
-        .glassCard(cornerRadius: 16)
+        .stableMenuCard(cornerRadius: 16)
     }
 
     private func menuTrafficRow(_ row: ProcessTrafficRow, rank: Int) -> some View {
@@ -1845,7 +1888,7 @@ private struct MenuBarPanel: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 106, alignment: .topLeading)
-        .glassCard(cornerRadius: 16)
+        .stableMenuCard(cornerRadius: 16)
     }
 
     private func compactMenuMetric(_ title: String, _ value: String) -> some View {
@@ -1861,32 +1904,32 @@ private struct MenuBarPanel: View {
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(cornerRadius: 13)
+        .stableMenuCard(cornerRadius: 13)
     }
 
     private var cableStatusTitle: String {
-        let active = model.snapshot.cableMonitor.activePorts.count
-        let total = model.snapshot.cableMonitor.ports.count
+        let active = snapshot.cableMonitor.activePorts.count
+        let total = snapshot.cableMonitor.ports.count
         return "接口状态 · \(active)/\(total) 已连接"
     }
 
     private var cableStatusSubtitle: String {
-        if let error = model.snapshot.cableMonitor.errorText,
-           model.snapshot.cableMonitor.ports.isEmpty {
+        if let error = snapshot.cableMonitor.errorText,
+           snapshot.cableMonitor.ports.isEmpty {
             return error
         }
-        guard let port = model.snapshot.cableMonitor.activePorts.first else {
+        guard let port = snapshot.cableMonitor.activePorts.first else {
             return "没有连接的 USB-C 或雷雳设备"
         }
         return "\(port.displayName) · \(menuCableSubtitle(port))"
     }
 
     private var cableStatusSymbol: String {
-        model.snapshot.cableMonitor.activePorts.isEmpty ? "cable.connector.slash" : "cable.connector"
+        snapshot.cableMonitor.activePorts.isEmpty ? "cable.connector.slash" : "cable.connector"
     }
 
     private var cableStatusColor: Color {
-        model.snapshot.cableMonitor.errorText == nil ? .blue : .orange
+        snapshot.cableMonitor.errorText == nil ? .blue : .orange
     }
 }
 
@@ -2013,8 +2056,8 @@ private func formatUptime(_ interval: TimeInterval) -> String {
 @main
 private struct MacResourceMonitorApp: App {
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var applicationDelegate
-    @StateObject private var model = MonitorModel()
-    @StateObject private var processNetworkModel = ProcessNetworkMonitor()
+    @State private var model = MonitorModel()
+    @State private var processNetworkModel = ProcessNetworkMonitor()
 
     var body: some Scene {
         Window("Mac 资源监控", id: "dashboard") {
@@ -2028,11 +2071,19 @@ private struct MacResourceMonitorApp: App {
         MenuBarExtra {
             MenuBarPanel(model: model, processNetworkModel: processNetworkModel)
         } label: {
-            Text(menuBarSummary(model.snapshot))
-                .monospacedDigit()
-            .accessibilityLabel("Mac 资源监控 \(menuBarSummary(model.snapshot))")
+            MenuBarStatusLabel(model: model)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+private struct MenuBarStatusLabel: View {
+    @ObservedObject var model: MonitorModel
+
+    var body: some View {
+        Text(menuBarSummary(model.snapshot))
+            .monospacedDigit()
+            .accessibilityLabel("Mac 资源监控 \(menuBarSummary(model.snapshot))")
     }
 }
 

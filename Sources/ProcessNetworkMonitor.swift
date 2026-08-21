@@ -16,7 +16,18 @@ struct ProcessTrafficRow: Identifiable, Equatable {
     var sessionBytes: UInt64 { sessionDownloadedBytes + sessionUploadedBytes }
 }
 
-private struct ProcessTrafficDelta {
+struct ProcessTrafficDisplayState {
+    var rows: [ProcessTrafficRow] = []
+    var downloadBytesPerSecond = 0.0
+    var uploadBytesPerSecond = 0.0
+    var sessionDownloadedBytes: UInt64 = 0
+    var sessionUploadedBytes: UInt64 = 0
+    var lastUpdatedAt: Date?
+    var errorText: String?
+    var isCollecting = false
+}
+
+private struct ProcessTrafficSnapshot {
     let pid: Int32
     let name: String
     let downloadedBytes: UInt64
@@ -24,25 +35,26 @@ private struct ProcessTrafficDelta {
 }
 
 private enum ProcessTrafficCollectionResult {
-    case success(rows: [ProcessTrafficDelta], duration: TimeInterval)
+    case success(rows: [ProcessTrafficSnapshot])
     case failure(String)
 }
 
-private enum ProcessTrafficCollector {
-    private static let sampleInterval: TimeInterval = 1
-    private static let sampleCount = 3
+enum ProcessTrafficConsumer: Hashable {
+    case dashboard
+    case menuBar
+}
 
+private enum ProcessTrafficCollector {
     static func collect() -> ProcessTrafficCollectionResult {
         guard let result = CommandRunner.run(
             "/usr/bin/nettop",
             arguments: [
-                "-P", "-n", "-x", "-d", "-c",
+                "-P", "-n", "-x", "-c",
                 "-t", "external",
-                "-L", String(sampleCount),
-                "-s", String(Int(sampleInterval)),
+                "-L", "1",
                 "-J", "bytes_in,bytes_out"
             ],
-            timeout: 5
+            timeout: 2
         ) else {
             return .failure("无法启动 macOS nettop")
         }
@@ -55,62 +67,40 @@ private enum ProcessTrafficCollector {
             return .failure(detail.isEmpty ? "nettop 返回错误 \(result.terminationStatus)" : detail)
         }
 
-        let samples = parseSamples(result.outputString)
-        guard samples.count >= 2 else {
-            return .failure("nettop 未返回足够的流量样本")
+        guard let snapshots = parseSnapshot(result.outputString) else {
+            return .failure("nettop 未返回进程流量快照")
         }
 
-        // Delta mode's first block is cumulative because no previous sample exists.
-        // Only subsequent blocks represent traffic during the requested interval.
-        let deltaSamples = samples.dropFirst()
-        var aggregated: [Int32: ProcessTrafficDelta] = [:]
-        for sample in deltaSamples {
-            for row in sample {
-                let previous = aggregated[row.pid]
-                aggregated[row.pid] = ProcessTrafficDelta(
-                    pid: row.pid,
-                    name: resolvedProcessName(pid: row.pid, fallback: previous?.name ?? row.name),
-                    downloadedBytes: (previous?.downloadedBytes ?? 0) + row.downloadedBytes,
-                    uploadedBytes: (previous?.uploadedBytes ?? 0) + row.uploadedBytes
-                )
-            }
-        }
-
-        return .success(
-            rows: Array(aggregated.values),
-            duration: Double(deltaSamples.count) * sampleInterval
-        )
+        return .success(rows: snapshots)
     }
 
-    private static func parseSamples(_ output: String) -> [[ProcessTrafficDelta]] {
-        var samples: [[ProcessTrafficDelta]] = []
-        var current: [ProcessTrafficDelta]?
+    private static func parseSnapshot(_ output: String) -> [ProcessTrafficSnapshot]? {
+        var rows: [ProcessTrafficSnapshot] = []
+        var foundHeader = false
 
         for rawLine in output.split(whereSeparator: \Character.isNewline) {
             let fields = parseCSVLine(String(rawLine))
             guard fields.count >= 3 else { continue }
 
             if fields[1] == "bytes_in", fields[2] == "bytes_out" {
-                if let current { samples.append(current) }
-                current = []
+                foundHeader = true
                 continue
             }
 
-            guard current != nil,
+            guard foundHeader,
                   let identity = parseIdentity(fields[0]),
                   let downloaded = UInt64(fields[1]),
                   let uploaded = UInt64(fields[2]) else { continue }
 
-            current?.append(ProcessTrafficDelta(
+            rows.append(ProcessTrafficSnapshot(
                 pid: identity.pid,
-                name: identity.name,
+                name: resolvedProcessName(pid: identity.pid, fallback: identity.name),
                 downloadedBytes: downloaded,
                 uploadedBytes: uploaded
             ))
         }
 
-        if let current { samples.append(current) }
-        return samples
+        return foundHeader ? rows : nil
     }
 
     private static func parseIdentity(_ value: String) -> (name: String, pid: Int32)? {
@@ -158,14 +148,19 @@ private enum ProcessTrafficCollector {
 }
 
 final class ProcessNetworkMonitor: ObservableObject {
-    @Published private(set) var rows: [ProcessTrafficRow] = []
-    @Published private(set) var downloadBytesPerSecond = 0.0
-    @Published private(set) var uploadBytesPerSecond = 0.0
-    @Published private(set) var sessionDownloadedBytes: UInt64 = 0
-    @Published private(set) var sessionUploadedBytes: UInt64 = 0
-    @Published private(set) var lastUpdatedAt: Date?
-    @Published private(set) var errorText: String?
-    @Published private(set) var isCollecting = true
+    private static let dashboardRefreshInterval: TimeInterval = 2
+    private static let menuBarRefreshInterval: TimeInterval = 2
+
+    @Published private(set) var displayState = ProcessTrafficDisplayState()
+
+    var rows: [ProcessTrafficRow] { displayState.rows }
+    var downloadBytesPerSecond: Double { displayState.downloadBytesPerSecond }
+    var uploadBytesPerSecond: Double { displayState.uploadBytesPerSecond }
+    var sessionDownloadedBytes: UInt64 { displayState.sessionDownloadedBytes }
+    var sessionUploadedBytes: UInt64 { displayState.sessionUploadedBytes }
+    var lastUpdatedAt: Date? { displayState.lastUpdatedAt }
+    var errorText: String? { displayState.errorText }
+    var isCollecting: Bool { displayState.isCollecting }
 
     private struct SessionEntry {
         var name: String
@@ -174,18 +169,55 @@ final class ProcessNetworkMonitor: ObservableObject {
         var lastSeen: Date
     }
 
+    private struct CumulativeCounter {
+        var name: String
+        var downloadedBytes: UInt64
+        var uploadedBytes: UInt64
+    }
+
     private let queue = DispatchQueue(label: "local.mac-resource-monitor.process-network", qos: .utility)
     private var sessionEntries: [Int32: SessionEntry] = [:]
+    private var previousCounters: [Int32: CumulativeCounter] = [:]
+    private var previousSnapshotAt: Date?
+    private var activeConsumers: Set<ProcessTrafficConsumer> = []
+    private var collectionScheduled = false
+    private var collectionGeneration: UInt64 = 0
 
-    init() {
-        scheduleCollection()
+    func setActive(_ active: Bool, for consumer: ProcessTrafficConsumer) {
+        let wasCollecting = !activeConsumers.isEmpty
+        let wasDashboardActive = activeConsumers.contains(.dashboard)
+        if active {
+            activeConsumers.insert(consumer)
+        } else {
+            activeConsumers.remove(consumer)
+        }
+
+        let shouldCollect = !activeConsumers.isEmpty
+        let isDashboardActive = activeConsumers.contains(.dashboard)
+        guard shouldCollect != wasCollecting || isDashboardActive != wasDashboardActive else { return }
+
+        collectionGeneration &+= 1
+        if shouldCollect {
+            if !wasCollecting {
+                var next = displayState
+                next.errorText = nil
+                next.isCollecting = next.lastUpdatedAt == nil
+                displayState = next
+            }
+            scheduleCollection()
+        } else {
+            previousCounters.removeAll()
+            previousSnapshotAt = nil
+            clearLiveRates()
+        }
     }
 
     func resetSessionTotals() {
         sessionEntries.removeAll()
-        sessionDownloadedBytes = 0
-        sessionUploadedBytes = 0
-        rows = rows.map {
+        var next = displayState
+        next.sessionDownloadedBytes = 0
+        next.sessionUploadedBytes = 0
+        next.rows = next.rows.map {
             ProcessTrafficRow(
                 pid: $0.pid,
                 name: $0.name,
@@ -195,46 +227,135 @@ final class ProcessNetworkMonitor: ObservableObject {
                 sessionUploadedBytes: 0
             )
         }
+        displayState = next
     }
 
     private func scheduleCollection() {
+        guard !activeConsumers.isEmpty, !collectionScheduled else { return }
+        collectionScheduled = true
+        let generation = collectionGeneration
+
         queue.async { [weak self] in
             let result = ProcessTrafficCollector.collect()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                self.collectionScheduled = false
+
+                guard generation == self.collectionGeneration else {
+                    self.setCollecting(false)
+                    if !self.activeConsumers.isEmpty {
+                        self.scheduleCollection()
+                    }
+                    return
+                }
+
+                guard !self.activeConsumers.isEmpty else {
+                    self.setCollecting(false)
+                    return
+                }
+
                 self.apply(result)
-                self.queue.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    self?.scheduleCollection()
+                let refreshInterval = self.activeConsumers.contains(.dashboard)
+                    ? Self.dashboardRefreshInterval
+                    : Self.menuBarRefreshInterval
+                DispatchQueue.main.asyncAfter(deadline: .now() + refreshInterval) { [weak self] in
+                    guard let self,
+                          generation == self.collectionGeneration,
+                          !self.activeConsumers.isEmpty else { return }
+                    self.scheduleCollection()
                 }
             }
         }
     }
 
+    private func clearLiveRates() {
+        var next = displayState
+        next.downloadBytesPerSecond = 0
+        next.uploadBytesPerSecond = 0
+        next.lastUpdatedAt = nil
+        next.isCollecting = false
+        next.rows = next.rows.map {
+            ProcessTrafficRow(
+                pid: $0.pid,
+                name: $0.name,
+                downloadBytesPerSecond: 0,
+                uploadBytesPerSecond: 0,
+                sessionDownloadedBytes: $0.sessionDownloadedBytes,
+                sessionUploadedBytes: $0.sessionUploadedBytes
+            )
+        }
+        displayState = next
+    }
+
+    private func setCollecting(_ collecting: Bool) {
+        guard displayState.isCollecting != collecting else { return }
+        var next = displayState
+        next.isCollecting = collecting
+        displayState = next
+    }
+
     private func apply(_ result: ProcessTrafficCollectionResult) {
         switch result {
         case let .failure(message):
-            errorText = message
-            isCollecting = false
+            var next = displayState
+            next.errorText = message
+            next.isCollecting = false
+            displayState = next
 
-        case let .success(deltas, duration):
+        case let .success(snapshots):
             let now = Date()
-            let safeDuration = max(0.1, duration)
-            let activePIDs = Set(deltas.map(\.pid))
+            let currentCounters = Dictionary(
+                snapshots.map { snapshot in
+                    (
+                        snapshot.pid,
+                        CumulativeCounter(
+                            name: snapshot.name,
+                            downloadedBytes: snapshot.downloadedBytes,
+                            uploadedBytes: snapshot.uploadedBytes
+                        )
+                    )
+                },
+                uniquingKeysWith: { _, latest in latest }
+            )
+
+            guard let previousSnapshotAt else {
+                previousCounters = currentCounters
+                self.previousSnapshotAt = now
+                var next = displayState
+                next.errorText = nil
+                next.isCollecting = false
+                displayState = next
+                return
+            }
+
+            let safeDuration = max(0.1, now.timeIntervalSince(previousSnapshotAt))
+            let activePIDs = Set(currentCounters.keys)
             var liveRates: [Int32: (download: Double, upload: Double)] = [:]
 
-            for delta in deltas {
-                let current = sessionEntries[delta.pid]
-                sessionEntries[delta.pid] = SessionEntry(
-                    name: delta.name,
-                    downloadedBytes: (current?.downloadedBytes ?? 0) + delta.downloadedBytes,
-                    uploadedBytes: (current?.uploadedBytes ?? 0) + delta.uploadedBytes,
+            for (pid, counter) in currentCounters {
+                let previous = previousCounters[pid]
+                let isSameProcess = previous?.name == counter.name
+                let downloadedDelta = isSameProcess
+                    ? counter.downloadedBytes.subtractingWithoutUnderflow(previous?.downloadedBytes ?? counter.downloadedBytes)
+                    : 0
+                let uploadedDelta = isSameProcess
+                    ? counter.uploadedBytes.subtractingWithoutUnderflow(previous?.uploadedBytes ?? counter.uploadedBytes)
+                    : 0
+                let current = sessionEntries[pid]
+                sessionEntries[pid] = SessionEntry(
+                    name: counter.name,
+                    downloadedBytes: (current?.downloadedBytes ?? 0) + downloadedDelta,
+                    uploadedBytes: (current?.uploadedBytes ?? 0) + uploadedDelta,
                     lastSeen: now
                 )
-                liveRates[delta.pid] = (
-                    Double(delta.downloadedBytes) / safeDuration,
-                    Double(delta.uploadedBytes) / safeDuration
+                liveRates[pid] = (
+                    Double(downloadedDelta) / safeDuration,
+                    Double(uploadedDelta) / safeDuration
                 )
             }
+
+            previousCounters = currentCounters
+            self.previousSnapshotAt = now
 
             sessionEntries = sessionEntries.filter { pid, entry in
                 activePIDs.contains(pid) || now.timeIntervalSince(entry.lastSeen) < 120
@@ -259,15 +380,23 @@ final class ProcessNetworkMonitor: ObservableObject {
             }
             .prefix(100)
 
-            rows = Array(nextRows)
-            downloadBytesPerSecond = liveRates.values.reduce(0) { $0 + $1.download }
-            uploadBytesPerSecond = liveRates.values.reduce(0) { $0 + $1.upload }
-            sessionDownloadedBytes = sessionEntries.values.reduce(0) { $0 + $1.downloadedBytes }
-            sessionUploadedBytes = sessionEntries.values.reduce(0) { $0 + $1.uploadedBytes }
-            lastUpdatedAt = now
-            errorText = nil
-            isCollecting = false
+            var next = displayState
+            next.rows = Array(nextRows)
+            next.downloadBytesPerSecond = liveRates.values.reduce(0) { $0 + $1.download }
+            next.uploadBytesPerSecond = liveRates.values.reduce(0) { $0 + $1.upload }
+            next.sessionDownloadedBytes = sessionEntries.values.reduce(0) { $0 + $1.downloadedBytes }
+            next.sessionUploadedBytes = sessionEntries.values.reduce(0) { $0 + $1.uploadedBytes }
+            next.lastUpdatedAt = now
+            next.errorText = nil
+            next.isCollecting = false
+            displayState = next
         }
+    }
+}
+
+private extension UInt64 {
+    func subtractingWithoutUnderflow(_ previous: UInt64) -> UInt64 {
+        self >= previous ? self - previous : 0
     }
 }
 
@@ -363,13 +492,15 @@ struct ProcessTrafficView: View {
             }
 
             Label(
-                "只读调用 macOS nettop；不查看通信内容，不记录域名，不接管连接，并排除本机回环流量。累计值从本次应用启动或手动清零后开始。",
+                "页面或菜单可见时只读调用 macOS nettop；不查看通信内容，不记录域名，不接管连接，并排除本机回环流量。累计值仅统计界面可见期间，手动清零后重新计算。",
                 systemImage: "lock.shield"
             )
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 4)
         }
+        .onAppear { model.setActive(true, for: .dashboard) }
+        .onDisappear { model.setActive(false, for: .dashboard) }
     }
 
     private var processTable: some View {
