@@ -42,6 +42,7 @@ private struct ResourceSnapshot {
     var processes: [ProcessRow] = []
     var cableMonitor = CableMonitorSnapshot()
     var chargingPower = ChargingPowerSnapshot()
+    var expandedMetricsUpdatedAt: Date?
     var updatedAt = Date()
 }
 
@@ -136,11 +137,55 @@ private struct SMCKeyData {
 private final class SMCReader {
     private var connection: io_connect_t = 0
 
-    private let m5CPUKeys = [
-        "Tp00", "Tp04", "Tp08", "Tp0C", "Tp0G", "Tp0K",
-        "Tp0O", "Tp0R", "Tp0U", "Tp0X", "Tp0a", "Tp0d",
-        "Tp0g", "Tp0j", "Tp0m", "Tp0p", "Tp0u", "Tp0y"
+    private static let cpuTemperatureKeysByGeneration: [String: [String]] = [
+        "m1": [
+            "Tp09", "Tp0T", "Tp01", "Tp05", "Tp0D",
+            "Tp0H", "Tp0L", "Tp0P", "Tp0X", "Tp0b"
+        ],
+        "m2": [
+            "Tp1h", "Tp1t", "Tp1p", "Tp1l", "Tp01", "Tp05",
+            "Tp09", "Tp0D", "Tp0X", "Tp0b", "Tp0f", "Tp0j"
+        ],
+        "m3": [
+            "Te05", "Te0L", "Te0P", "Te0S", "Tf04", "Tf09",
+            "Tf0A", "Tf0B", "Tf0D", "Tf0E", "Tf44", "Tf49",
+            "Tf4A", "Tf4B", "Tf4D", "Tf4E"
+        ],
+        "m4": [
+            "Te05", "Te0S", "Te09", "Te0H", "Tp01", "Tp05",
+            "Tp09", "Tp0D", "Tp0V", "Tp0Y", "Tp0b", "Tp0e"
+        ],
+        "m5": [
+            "Tp00", "Tp04", "Tp08", "Tp0C", "Tp0G", "Tp0K",
+            "Tp0O", "Tp0R", "Tp0U", "Tp0X", "Tp0a", "Tp0d",
+            "Tp0g", "Tp0j", "Tp0m", "Tp0p", "Tp0u", "Tp0y"
+        ]
     ]
+
+    private let cpuTemperatureKeys = SMCReader.detectedCPUTemperatureKeys()
+    private var workingCPUTemperatureKeys: [String]?
+    private var cpuTemperatureProbeCounter = 0
+
+    private static func detectedCPUTemperatureKeys() -> [String] {
+        guard let brand = cpuBrandString()?.lowercased() else { return [] }
+        let words = brand.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        for generation in ["m5", "m4", "m3", "m2", "m1"] where words.contains(generation) {
+            return cpuTemperatureKeysByGeneration[generation] ?? []
+        }
+        return []
+    }
+
+    private static func cpuBrandString() -> String? {
+        var size = 0
+        guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0,
+              size > 1 else { return nil }
+        var buffer = [CChar](repeating: 0, count: size)
+        let result = buffer.withUnsafeMutableBytes { bytes in
+            sysctlbyname("machdep.cpu.brand_string", bytes.baseAddress, &size, nil, 0)
+        }
+        guard result == 0 else { return nil }
+        return String(cString: buffer)
+    }
 
     init() {
         var iterator: io_iterator_t = 0
@@ -161,8 +206,24 @@ private final class SMCReader {
     }
 
     func cpuTemperatures() -> (average: Double, hottest: Double)? {
-        let values = m5CPUKeys.compactMap { value(for: $0) }.filter { $0 >= 10 && $0 <= 120 }
-        guard !values.isEmpty, let hottest = values.max() else { return nil }
+        let shouldProbeAllKeys = workingCPUTemperatureKeys == nil || cpuTemperatureProbeCounter == 0
+        let candidates = shouldProbeAllKeys
+            ? cpuTemperatureKeys
+            : workingCPUTemperatureKeys ?? cpuTemperatureKeys
+        cpuTemperatureProbeCounter = (cpuTemperatureProbeCounter + 1) % 30
+        let readings = candidates.compactMap { key -> (key: String, value: Double)? in
+            guard let value = value(for: key),
+                  value.isFinite,
+                  (10...120).contains(value) else { return nil }
+            return (key, value)
+        }
+        guard !readings.isEmpty,
+              let hottest = readings.map(\.value).max() else {
+            workingCPUTemperatureKeys = nil
+            return nil
+        }
+        workingCPUTemperatureKeys = readings.map(\.key)
+        let values = readings.map(\.value)
         return (values.reduce(0, +) / Double(values.count), hottest)
     }
 
@@ -194,13 +255,18 @@ private final class SMCReader {
         input.data8 = 9
 
         guard call(input: &input, output: &output) == kIOReturnSuccess,
-              output.keyInfo.dataSize > 0 else { return nil }
+              output.result == 0,
+              output.status == 0,
+              output.keyInfo.dataSize > 0,
+              output.keyInfo.dataSize <= 32 else { return nil }
         let dataSize = Int(output.keyInfo.dataSize)
         let dataType = string(from: output.keyInfo.dataType)
 
         input.keyInfo.dataSize = output.keyInfo.dataSize
         input.data8 = 5
-        guard call(input: &input, output: &output) == kIOReturnSuccess else { return nil }
+        guard call(input: &input, output: &output) == kIOReturnSuccess,
+              output.result == 0,
+              output.status == 0 else { return nil }
 
         let bytes = withUnsafeBytes(of: output.bytes) { Array($0.prefix(dataSize)) }
         guard !bytes.isEmpty else { return nil }
@@ -229,9 +295,23 @@ private final class SMCReader {
     }
 }
 
+private struct ResourceCollectionOptions {
+    var includeExpandedMetrics = false
+    var includeTopProcesses = false
+    var includeCable = false
+}
+
+private enum ResourceMonitorConsumer: Hashable {
+    case expandedMetrics
+    case menuBar
+    case processTable
+    case cable
+}
+
 private final class SystemCollector {
+    private var cachedSnapshot = ResourceSnapshot()
     private var previousCPUTicks: (user: UInt64, system: UInt64, idle: UInt64, nice: UInt64)?
-    private var previousNetwork: (received: UInt64, sent: UInt64, date: Date)?
+    private var previousNetwork: (interface: String, received: UInt64, sent: UInt64, date: Date)?
     private var cachedBattery: (text: String, percent: Double?, source: String) = ("检测中", nil, "--")
     private var batterySampleCounter = 0
     private var cableSampleCounter = 0
@@ -240,8 +320,12 @@ private final class SystemCollector {
     private let cableCollector = CableCollector()
     private let chargingPowerReader = ChargingPowerReader()
 
-    func collect(forceCableRefresh: Bool = false) -> ResourceSnapshot {
-        var snapshot = ResourceSnapshot()
+    func collect(
+        options: ResourceCollectionOptions,
+        forceCableRefresh: Bool = false,
+        forceExpandedMetricsRefresh: Bool = false
+    ) -> ResourceSnapshot {
+        var snapshot = cachedSnapshot
         snapshot.cpuPercent = sampleCPU()
 
         let memory = sampleMemory()
@@ -249,46 +333,60 @@ private final class SystemCollector {
         snapshot.memoryTotal = memory.total
         snapshot.memoryPercent = memory.total > 0 ? Double(memory.used) / Double(memory.total) * 100 : 0
 
-        let disk = sampleDisk()
-        snapshot.diskUsed = disk.used
-        snapshot.diskTotal = disk.total
-        snapshot.diskPercent = disk.total > 0 ? Double(disk.used) / Double(disk.total) * 100 : 0
-
         let network = sampleNetwork()
         snapshot.downloadBytesPerSecond = network.receivedPerSecond
         snapshot.uploadBytesPerSecond = network.sentPerSecond
         snapshot.networkInterface = network.interface
 
-        if batterySampleCounter == 0 {
-            cachedBattery = sampleBattery()
-        }
-        batterySampleCounter = (batterySampleCounter + 1) % 5
-        snapshot.batteryText = cachedBattery.text
-        snapshot.batteryPercent = cachedBattery.percent
-        snapshot.powerSource = cachedBattery.source
+        let temperatures = smc.cpuTemperatures()
+        snapshot.cpuTemperature = temperatures?.average
+        snapshot.hottestCPUTemperature = temperatures?.hottest
 
-        if let temperatures = smc.cpuTemperatures() {
-            snapshot.cpuTemperature = temperatures.average
-            snapshot.hottestCPUTemperature = temperatures.hottest
-        }
-        let fan = smc.fanReading()
-        snapshot.fanSpeed = fan.speed
-        snapshot.fanCount = fan.count
-        snapshot.thermalState = thermalStateText()
+        if options.includeExpandedMetrics {
+            let disk = sampleDisk()
+            snapshot.diskUsed = disk.used
+            snapshot.diskTotal = disk.total
+            snapshot.diskPercent = disk.total > 0 ? Double(disk.used) / Double(disk.total) * 100 : 0
 
-        snapshot.uptime = ProcessInfo.processInfo.systemUptime
-        snapshot.processes = sampleTopProcesses()
-        snapshot.chargingPower = chargingPowerReader.read()
-
-        if forceCableRefresh || cableSampleCounter == 0 {
-            let reading = cableCollector.collect()
-            if reading.errorText == nil || cachedCableMonitor.ports.isEmpty {
-                cachedCableMonitor = reading
+            if forceExpandedMetricsRefresh || batterySampleCounter == 0 {
+                cachedBattery = sampleBattery()
+                batterySampleCounter = 0
+                snapshot.expandedMetricsUpdatedAt = Date()
             }
+            batterySampleCounter = (batterySampleCounter + 1) % 5
+            snapshot.batteryText = cachedBattery.text
+            snapshot.batteryPercent = cachedBattery.percent
+            snapshot.powerSource = cachedBattery.source
+
+            let fan = smc.fanReading()
+            snapshot.fanSpeed = fan.speed
+            snapshot.fanCount = fan.count
+            snapshot.thermalState = thermalStateText()
+            snapshot.uptime = ProcessInfo.processInfo.systemUptime
+            snapshot.chargingPower = chargingPowerReader.read()
+        } else {
+            batterySampleCounter = 0
         }
-        cableSampleCounter = (cableSampleCounter + 1) % 3
+
+        snapshot.processes = options.includeTopProcesses ? sampleTopProcesses() : []
+
+        if options.includeCable || forceCableRefresh {
+            if forceCableRefresh || cableSampleCounter == 0 {
+                let reading = cableCollector.collect()
+                if reading.errorText == nil || cachedCableMonitor.ports.isEmpty {
+                    cachedCableMonitor = reading
+                } else {
+                    cachedCableMonitor.helperAvailable = reading.helperAvailable
+                    cachedCableMonitor.errorText = reading.errorText
+                }
+            }
+            cableSampleCounter = (cableSampleCounter + 1) % 3
+        } else {
+            cableSampleCounter = 0
+        }
         snapshot.cableMonitor = cachedCableMonitor
         snapshot.updatedAt = Date()
+        cachedSnapshot = snapshot
         return snapshot
     }
 
@@ -352,49 +450,63 @@ private final class SystemCollector {
     }
 
     private func primaryInterface() -> String? {
-        guard let store = SCDynamicStoreCreate(nil, "MacResourceMonitor" as CFString, nil, nil),
-              let value = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any],
-              let interface = value["PrimaryInterface"] as? String else {
+        guard let store = SCDynamicStoreCreate(nil, "MacResourceMonitor" as CFString, nil, nil) else {
             return nil
         }
-        return interface
+        for protocolName in ["IPv4", "IPv6"] {
+            let key = "State:/Network/Global/\(protocolName)" as CFString
+            if let value = SCDynamicStoreCopyValue(store, key) as? [String: Any],
+               let interface = value["PrimaryInterface"] as? String,
+               !interface.isEmpty {
+                return interface
+            }
+        }
+        return nil
+    }
+
+    private func interfaceCounters(_ interface: String) -> (received: UInt64, sent: UInt64)? {
+        let index = interface.withCString { if_nametoindex($0) }
+        guard index > 0 else { return nil }
+
+        var mib = [
+            Int32(CTL_NET),
+            Int32(PF_LINK),
+            Int32(NETLINK_GENERIC),
+            Int32(IFMIB_IFDATA),
+            Int32(index),
+            Int32(IFDATA_GENERAL)
+        ]
+        var data = ifmibdata()
+        var dataSize = MemoryLayout<ifmibdata>.stride
+        let result = mib.withUnsafeMutableBufferPointer { pointer in
+            sysctl(pointer.baseAddress, u_int(pointer.count), &data, &dataSize, nil, 0)
+        }
+        guard result == 0 else { return nil }
+        return (UInt64(data.ifmd_data.ifi_ibytes), UInt64(data.ifmd_data.ifi_obytes))
     }
 
     private func sampleNetwork() -> (receivedPerSecond: Double, sentPerSecond: Double, interface: String) {
-        let wantedInterface = primaryInterface()
-        var addresses: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&addresses) == 0, let first = addresses else {
-            return (0, 0, wantedInterface ?? "--")
-        }
-        defer { freeifaddrs(addresses) }
-
-        var received: UInt64 = 0
-        var sent: UInt64 = 0
-        var pointer: UnsafeMutablePointer<ifaddrs>? = first
-        while let current = pointer {
-            let item = current.pointee
-            let name = String(cString: item.ifa_name)
-            if name == wantedInterface,
-               let address = item.ifa_addr,
-               address.pointee.sa_family == UInt8(AF_LINK),
-               let data = item.ifa_data {
-                let networkData = data.assumingMemoryBound(to: if_data.self).pointee
-                received = UInt64(networkData.ifi_ibytes)
-                sent = UInt64(networkData.ifi_obytes)
-                break
-            }
-            pointer = item.ifa_next
+        guard let interface = primaryInterface(),
+              let counters = interfaceCounters(interface) else {
+            previousNetwork = nil
+            return (0, 0, "--")
         }
 
         let now = Date()
-        defer { previousNetwork = (received, sent, now) }
-        guard let previous = previousNetwork else {
-            return (0, 0, wantedInterface ?? "--")
+        defer {
+            previousNetwork = (interface, counters.received, counters.sent, now)
         }
+        guard let previous = previousNetwork,
+              previous.interface == interface,
+              counters.received >= previous.received,
+              counters.sent >= previous.sent else {
+            return (0, 0, interface)
+        }
+
         let elapsed = max(0.2, now.timeIntervalSince(previous.date))
-        let receivedDelta = received >= previous.received ? received - previous.received : 0
-        let sentDelta = sent >= previous.sent ? sent - previous.sent : 0
-        return (Double(receivedDelta) / elapsed, Double(sentDelta) / elapsed, wantedInterface ?? "--")
+        let receivedDelta = counters.received - previous.received
+        let sentDelta = counters.sent - previous.sent
+        return (Double(receivedDelta) / elapsed, Double(sentDelta) / elapsed, interface)
     }
 
     private func run(_ executable: String, _ arguments: [String]) -> String? {
@@ -461,13 +573,16 @@ private final class MonitorModel: ObservableObject {
     private(set) var cpuHistory = Array(repeating: 0.0, count: 60)
     private(set) var memoryHistory = Array(repeating: 0.0, count: 60)
     @Published var isRefreshingCable = false
-    @Published var lastCableRefreshAt: Date?
+    @Published var isRefreshingExpandedMetrics = false
 
     private let collector = SystemCollector()
     private let queue = DispatchQueue(label: "local.mac-resource-monitor.collector", qos: .utility)
     private var timer: Timer?
     private var refreshInProgress = false
+    private var refreshPending = false
     private var forceCableRefreshPending = false
+    private var expandedMetricsRefreshGeneration: UInt64 = 0
+    private var activeConsumers: Set<ResourceMonitorConsumer> = []
 
     init() {
         refresh()
@@ -478,18 +593,64 @@ private final class MonitorModel: ObservableObject {
 
     deinit { timer?.invalidate() }
 
+    func setActive(_ active: Bool, for consumer: ResourceMonitorConsumer) {
+        updateActiveConsumers([consumer: active])
+    }
+
+    func updateActiveConsumers(_ changes: [ResourceMonitorConsumer: Bool]) {
+        let previousConsumers = activeConsumers
+        for (consumer, active) in changes {
+            if active {
+                activeConsumers.insert(consumer)
+            } else {
+                activeConsumers.remove(consumer)
+            }
+        }
+        guard activeConsumers != previousConsumers else { return }
+
+        let newlyActive = activeConsumers.subtracting(previousConsumers)
+        let needsCableRefresh = newlyActive.contains(.cable) || newlyActive.contains(.menuBar)
+        let expandedBecameActive = newlyActive.contains(.expandedMetrics) || newlyActive.contains(.menuBar)
+        let expandedMetricsAreActive = activeConsumers.contains(.expandedMetrics)
+            || activeConsumers.contains(.menuBar)
+        let expandedMetricsWereActive = previousConsumers.contains(.expandedMetrics)
+            || previousConsumers.contains(.menuBar)
+        let expandedMetricsAreStale = snapshot.expandedMetricsUpdatedAt.map {
+            Date().timeIntervalSince($0) > 4
+        } ?? true
+        if expandedBecameActive, expandedMetricsAreStale {
+            expandedMetricsRefreshGeneration &+= 1
+            isRefreshingExpandedMetrics = true
+        } else if expandedMetricsWereActive, !expandedMetricsAreActive {
+            expandedMetricsRefreshGeneration &+= 1
+            isRefreshingExpandedMetrics = false
+        }
+        refresh(forceCableRefresh: needsCableRefresh)
+    }
+
     func refresh(forceCableRefresh: Bool = false) {
         if forceCableRefresh {
             forceCableRefreshPending = true
             isRefreshingCable = true
         }
-        guard !refreshInProgress else { return }
+        guard !refreshInProgress else {
+            refreshPending = true
+            return
+        }
         let shouldForceCableRefresh = forceCableRefreshPending
+        let shouldForceExpandedMetricsRefresh = isRefreshingExpandedMetrics
+        let options = collectionOptions
+        let expandedMetricsGeneration = expandedMetricsRefreshGeneration
         forceCableRefreshPending = false
+        refreshPending = false
         refreshInProgress = true
         queue.async { [weak self] in
             guard let self else { return }
-            let next = self.collector.collect(forceCableRefresh: shouldForceCableRefresh)
+            let next = self.collector.collect(
+                options: options,
+                forceCableRefresh: shouldForceCableRefresh,
+                forceExpandedMetricsRefresh: shouldForceExpandedMetricsRefresh
+            )
             DispatchQueue.main.async {
                 let nextCPUHistory = Array(self.cpuHistory.suffix(59)) + [next.cpuPercent]
                 let nextMemoryHistory = Array(self.memoryHistory.suffix(59)) + [next.memoryPercent]
@@ -499,12 +660,15 @@ private final class MonitorModel: ObservableObject {
                     self.cpuHistory = nextCPUHistory
                     self.memoryHistory = nextMemoryHistory
                     self.refreshInProgress = false
+                    if options.includeExpandedMetrics,
+                       expandedMetricsGeneration == self.expandedMetricsRefreshGeneration {
+                        self.isRefreshingExpandedMetrics = false
+                    }
                     if shouldForceCableRefresh {
-                        self.isRefreshingCable = false
-                        self.lastCableRefreshAt = next.updatedAt
+                        self.isRefreshingCable = self.forceCableRefreshPending
                     }
                 }
-                if self.forceCableRefreshPending {
+                if self.refreshPending || self.forceCableRefreshPending {
                     self.refresh()
                 }
             }
@@ -514,142 +678,501 @@ private final class MonitorModel: ObservableObject {
     func refreshCableMonitor() {
         refresh(forceCableRefresh: true)
     }
+
+    private var collectionOptions: ResourceCollectionOptions {
+        ResourceCollectionOptions(
+            includeExpandedMetrics: activeConsumers.contains(.expandedMetrics)
+                || activeConsumers.contains(.menuBar),
+            includeTopProcesses: activeConsumers.contains(.processTable),
+            includeCable: activeConsumers.contains(.cable)
+                || activeConsumers.contains(.menuBar)
+        )
+    }
 }
 
-private struct MetricCard: View {
-    let title: String
-    let value: String
-    let subtitle: String
-    let percent: Double?
-    let color: Color
-    let symbol: String
+private struct TelemetryPulseStrip: View {
+    let snapshot: ResourceSnapshot
+    let isLoadingExpandedMetrics: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(InterfacePalette.iconSurface)
-                    Image(systemName: symbol)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(color)
-                }
-                .frame(width: 32, height: 32)
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(InterfacePalette.signal)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: InterfacePalette.signal.opacity(0.65), radius: 5)
+                Text("实时遥测")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(
+                    isLoadingExpandedMetrics
+                        ? "正在更新硬件传感器"
+                        : "每 2 秒采样"
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
                 Spacer()
+                Label(snapshot.networkInterface, systemImage: "network")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
-            Text(value)
-                .font(.system(size: 26, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            VStack(alignment: .leading, spacing: 7) {
-                if let percent {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Color.secondary.opacity(0.14))
-                            Capsule().fill(color.gradient)
-                                .frame(width: geometry.size.width * min(1, max(0, percent / 100)))
-                        }
-                    }
-                    .frame(height: 6)
-                } else {
-                    Spacer().frame(height: 6)
-                }
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+
+            HStack(spacing: 0) {
+                TelemetryStripMetric(
+                    title: "CPU",
+                    value: String(format: "%.0f%%", snapshot.cpuPercent),
+                    detail: "处理器负载",
+                    color: InterfacePalette.cpuSeries,
+                    progress: snapshot.cpuPercent
+                )
+                stripDivider
+                TelemetryStripMetric(
+                    title: "内存",
+                    value: String(format: "%.0f%%", snapshot.memoryPercent),
+                    detail: formatBytes(snapshot.memoryUsed),
+                    color: InterfacePalette.memorySeries,
+                    progress: snapshot.memoryPercent
+                )
+                stripDivider
+                TelemetryStripMetric(
+                    title: "温度",
+                    value: formatTemperature(snapshot.cpuTemperature),
+                    detail: snapshot.hottestCPUTemperature.map {
+                        String(format: "峰值 %.1f°C", $0)
+                    } ?? "传感器不可用",
+                    color: InterfacePalette.temperature,
+                    progress: nil
+                )
+                stripDivider
+                TelemetryStripMetric(
+                    title: "下载",
+                    value: formatRate(snapshot.downloadBytesPerSecond),
+                    detail: "当前接收",
+                    color: InterfacePalette.download,
+                    progress: nil
+                )
+                stripDivider
+                TelemetryStripMetric(
+                    title: "上传",
+                    value: formatRate(snapshot.uploadBytesPerSecond),
+                    detail: "当前发送",
+                    color: InterfacePalette.upload,
+                    progress: nil
+                )
             }
         }
         .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 152, alignment: .topLeading)
-        .glassCard()
+        .stableDashboardCard(cornerRadius: InterfaceMetrics.cardRadius)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("系统实时遥测")
+    }
+
+    private var stripDivider: some View {
+        Rectangle()
+            .fill(InterfacePalette.separator)
+            .frame(width: 1, height: 58)
+            .padding(.horizontal, 4)
     }
 }
 
-private struct ContentSectionLabel: View {
+private struct TelemetryStripMetric: View {
     let title: String
-    let subtitle: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(.system(size: 17, weight: .semibold))
-            Spacer()
-            Text(subtitle)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 3)
-    }
-}
-
-private struct HistoryChart: View {
-    let title: String
-    let value: Double
-    let values: [Double]
+    let value: String
+    let detail: String
     let color: Color
+    let progress: Double?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Text("\(Int(value.rounded()))%")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(color)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Capsule()
+                    .fill(color)
+                    .frame(width: 12, height: 3)
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
-            GeometryReader { geometry in
-                ZStack {
-                    VStack {
-                        ForEach(0..<5, id: \.self) { _ in
-                            Divider().opacity(0.35)
-                            Spacer()
-                        }
+            Text(value)
+                .font(.system(size: 19, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+            if let progress {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(color.opacity(0.12))
+                        Capsule()
+                            .fill(color)
+                            .frame(
+                                width: geometry.size.width
+                                    * min(1, max(0, progress / 100))
+                            )
                     }
-                    chartPath(in: geometry.size, close: true)
-                        .fill(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                    chartPath(in: geometry.size, close: false)
-                        .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                }
+                .frame(height: 3)
+            } else {
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(height: 3)
+            }
+            Text(detail)
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+    }
+}
+
+private struct CombinedLoadHistory: View {
+    let cpuValues: [Double]
+    let memoryValues: [Double]
+    let cpuValue: Double
+    let memoryValue: Double
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var hoverIndex: Int?
+    @State private var accessibilitySampleOffset = 0
+
+    private var sampleCount: Int {
+        min(cpuValues.count, memoryValues.count)
+    }
+
+    private var accessibilitySampleIndex: Int? {
+        guard sampleCount > 0 else { return nil }
+        let offset = min(accessibilitySampleOffset, sampleCount - 1)
+        return sampleCount - 1 - offset
+    }
+
+    private var accessibilitySampleValue: String {
+        guard let index = accessibilitySampleIndex else {
+            return "暂无历史采样"
+        }
+        let secondsAgo = (sampleCount - 1 - index) * 2
+        let time = secondsAgo == 0 ? "现在" : "约 \(secondsAgo) 秒前"
+        return "\(time)，CPU \(Int(cpuValues[index].rounded()))%，内存 \(Int(memoryValues[index].rounded()))%"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("负载走势")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("最近约 2 分钟 · 同一百分比刻度")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                chartLegend("CPU", value: cpuValue, color: InterfacePalette.cpuSeries)
+                chartLegend("内存", value: memoryValue, color: InterfacePalette.memorySeries)
+            }
+
+            GeometryReader { geometry in
+                let size = geometry.size
+                ZStack(alignment: .topLeading) {
+                    chartGrid(in: size)
+
+                    areaPath(values: cpuValues, in: size)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    InterfacePalette.cpuSeries.opacity(0.10),
+                                    InterfacePalette.cpuSeries.opacity(0.01)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+
+                    linePath(values: cpuValues, in: size)
+                        .stroke(
+                            InterfacePalette.cpuSeries,
+                            style: StrokeStyle(
+                                lineWidth: 2,
+                                lineCap: .round,
+                                lineJoin: .round
+                            )
+                        )
+                    linePath(values: memoryValues, in: size)
+                        .stroke(
+                            InterfacePalette.memorySeries,
+                            style: StrokeStyle(
+                                lineWidth: 2,
+                                lineCap: .round,
+                                lineJoin: .round
+                            )
+                        )
+
+                    if let hoverIndex, sampleCount > 1 {
+                        hoverOverlay(index: hoverIndex, in: size)
+                    }
+
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                guard sampleCount > 1 else { return }
+                                let ratio = min(1, max(0, location.x / size.width))
+                                hoverIndex = min(
+                                    sampleCount - 1,
+                                    max(0, Int((ratio * CGFloat(sampleCount - 1)).rounded()))
+                                )
+                            case .ended:
+                                hoverIndex = nil
+                            }
+                        }
                 }
             }
-            .frame(height: 132)
+            .frame(height: 170)
             .clipped()
+
             HStack {
                 Text("2 分钟前")
                 Spacer()
+                Text("浏览采样详情")
+                Spacer()
                 Text("现在")
             }
-            .font(.system(size: 10))
+            .font(.system(size: 9))
             .foregroundStyle(.tertiary)
         }
         .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 268, alignment: .topLeading)
+        .stableDashboardCard(cornerRadius: InterfaceMetrics.cardRadius)
         .transaction { transaction in
             transaction.animation = nil
         }
-        .stableDashboardCard(cornerRadius: InterfaceMetrics.cardRadius)
+        .onChange(of: sampleCount) { _, newCount in
+            accessibilitySampleOffset = min(
+                accessibilitySampleOffset,
+                max(0, newCount - 1)
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("CPU 与内存负载趋势")
+        .accessibilityValue(accessibilitySampleValue)
+        .accessibilityHint("向上浏览较新的采样，向下浏览较早的采样")
+        .accessibilityAdjustableAction { direction in
+            guard sampleCount > 0 else { return }
+            switch direction {
+            case .increment:
+                accessibilitySampleOffset = max(
+                    0,
+                    accessibilitySampleOffset - 1
+                )
+            case .decrement:
+                accessibilitySampleOffset = min(
+                    sampleCount - 1,
+                    accessibilitySampleOffset + 1
+                )
+            @unknown default:
+                break
+            }
+        }
     }
 
-    private func chartPath(in size: CGSize, close: Bool) -> Path {
+    private func chartLegend(_ title: String, value: Double, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Capsule()
+                .fill(color)
+                .frame(width: 16, height: 3)
+            Text(title)
+                .font(.system(size: 10, weight: .medium))
+            Text("\(Int(value.rounded()))%")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func chartGrid(in size: CGSize) -> some View {
+        ZStack {
+            ForEach(0...4, id: \.self) { step in
+                Path { path in
+                    let y = size.height * CGFloat(step) / 4
+                    path.move(to: CGPoint(x: 0, y: y))
+                    path.addLine(to: CGPoint(x: size.width, y: y))
+                }
+                .stroke(InterfacePalette.chartGrid, lineWidth: 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func hoverOverlay(index: Int, in size: CGSize) -> some View {
+        let x = size.width * CGFloat(index) / CGFloat(max(1, sampleCount - 1))
+        let cpu = cpuValues[index]
+        let memory = memoryValues[index]
+        let cpuY = chartY(cpu, height: size.height)
+        let memoryY = chartY(memory, height: size.height)
+        let surface = InterfacePalette.stableDashboardSurface(for: colorScheme)
+
+        Path { path in
+            path.move(to: CGPoint(x: x, y: 0))
+            path.addLine(to: CGPoint(x: x, y: size.height))
+        }
+        .stroke(InterfacePalette.crosshair, lineWidth: 1)
+
+        Circle()
+            .fill(InterfacePalette.cpuSeries)
+            .overlay(Circle().stroke(surface, lineWidth: 2))
+            .frame(width: 9, height: 9)
+            .position(x: x, y: cpuY)
+
+        Circle()
+            .fill(InterfacePalette.memorySeries)
+            .overlay(Circle().stroke(surface, lineWidth: 2))
+            .frame(width: 9, height: 9)
+            .position(x: x, y: memoryY)
+
+        VStack(alignment: .leading, spacing: 3) {
+            Text("CPU  \(Int(cpu.rounded()))%")
+            Text("内存  \(Int(memory.rounded()))%")
+        }
+        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .position(
+            x: min(max(58, x), max(58, size.width - 58)),
+            y: 27
+        )
+    }
+
+    private func linePath(values: [Double], in size: CGSize) -> Path {
         var path = Path()
         guard values.count > 1 else { return path }
         for (index, rawValue) in values.enumerated() {
             let x = size.width * CGFloat(index) / CGFloat(values.count - 1)
-            let clamped = min(100, max(0, rawValue))
-            let y = size.height * (1 - CGFloat(clamped / 100))
-            if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
-            else { path.addLine(to: CGPoint(x: x, y: y)) }
-        }
-        if close {
-            path.addLine(to: CGPoint(x: size.width, y: size.height))
-            path.addLine(to: CGPoint(x: 0, y: size.height))
-            path.closeSubpath()
+            let y = chartY(rawValue, height: size.height)
+            if index == 0 {
+                path.move(to: CGPoint(x: x, y: y))
+            } else {
+                path.addLine(to: CGPoint(x: x, y: y))
+            }
         }
         return path
+    }
+
+    private func areaPath(values: [Double], in size: CGSize) -> Path {
+        var path = linePath(values: values, in: size)
+        guard values.count > 1 else { return path }
+        path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.addLine(to: CGPoint(x: 0, y: size.height))
+        path.closeSubpath()
+        return path
+    }
+
+    private func chartY(_ value: Double, height: CGFloat) -> CGFloat {
+        height * (1 - CGFloat(min(100, max(0, value)) / 100))
+    }
+}
+
+private struct HardwareTelemetryPanel: View {
+    let snapshot: ResourceSnapshot
+    let isLoadingExpandedMetrics: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("硬件与电源")
+                    .font(.system(size: 15, weight: .semibold))
+                Text(isLoadingExpandedMetrics ? "正在读取传感器" : "最近一次完整采样")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.bottom, 13)
+
+            hardwareRow(
+                "磁盘",
+                isLoadingExpandedMetrics
+                    ? "--"
+                    : "\(Int(snapshot.diskPercent.rounded()))% 已用",
+                symbol: "internaldrive",
+                color: InterfacePalette.storage,
+                progress: isLoadingExpandedMetrics ? nil : snapshot.diskPercent
+            )
+            rowDivider
+            hardwareRow(
+                "风扇",
+                isLoadingExpandedMetrics ? "--" : formatFanSpeed(snapshot.fanSpeed),
+                symbol: "fan.fill",
+                color: InterfacePalette.fan
+            )
+            rowDivider
+            hardwareRow(
+                "电池",
+                isLoadingExpandedMetrics ? "检测中" : snapshot.batteryText,
+                symbol: "battery.75percent",
+                color: InterfacePalette.battery
+            )
+            rowDivider
+            hardwareRow(
+                "充电功率",
+                isLoadingExpandedMetrics
+                    ? "--"
+                    : formatBatteryChargePower(snapshot.chargingPower),
+                symbol: "bolt.fill",
+                color: InterfacePalette.power
+            )
+            rowDivider
+            hardwareRow(
+                "热状态",
+                isLoadingExpandedMetrics ? "检测中" : snapshot.thermalState,
+                symbol: "thermometer.medium",
+                color: InterfacePalette.temperature
+            )
+        }
+        .padding(18)
+        .frame(width: 320, alignment: .topLeading)
+        .frame(minHeight: 268, alignment: .topLeading)
+        .stableDashboardCard(cornerRadius: InterfaceMetrics.cardRadius)
+    }
+
+    private func hardwareRow(
+        _ label: String,
+        _ value: String,
+        symbol: String,
+        color: Color,
+        progress: Double? = nil
+    ) -> some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 9) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(color)
+                    .frame(width: 17)
+                Text(label)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(value)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+            }
+            if let progress {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(color.opacity(0.12))
+                        Capsule()
+                            .fill(color)
+                            .frame(
+                                width: geometry.size.width
+                                    * min(1, max(0, progress / 100))
+                            )
+                    }
+                }
+                .frame(height: 3)
+                .padding(.leading, 26)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private var rowDivider: some View {
+        Rectangle()
+            .fill(InterfacePalette.separator)
+            .frame(height: 1)
     }
 }
 
@@ -700,19 +1223,20 @@ private struct ProcessTable: View {
 
 private struct SystemDetails: View {
     let snapshot: ResourceSnapshot
+    let isLoadingExpandedMetrics: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             Text("系统状态").font(.system(size: 14, weight: .semibold))
             detail("网络接口", snapshot.networkInterface, "network")
             Divider().opacity(0.45)
-            detail("供电方式", snapshot.powerSource, "bolt.fill")
+            detail("供电方式", isLoadingExpandedMetrics ? "检测中" : snapshot.powerSource, "bolt.fill")
             Divider().opacity(0.45)
-            detail("电池状态", snapshot.batteryText, "battery.75percent")
+            detail("电池状态", isLoadingExpandedMetrics ? "检测中" : snapshot.batteryText, "battery.75percent")
             Divider().opacity(0.45)
-            detail("系统热状态", snapshot.thermalState, "thermometer.medium")
+            detail("系统热状态", isLoadingExpandedMetrics ? "检测中" : snapshot.thermalState, "thermometer.medium")
             Divider().opacity(0.45)
-            detail("运行时间", formatUptime(snapshot.uptime), "clock.arrow.circlepath")
+            detail("运行时间", isLoadingExpandedMetrics ? "检测中" : formatUptime(snapshot.uptime), "clock.arrow.circlepath")
             Divider().opacity(0.45)
             detail("设备", Host.current().localizedName ?? "Mac", "desktopcomputer")
         }
@@ -735,6 +1259,7 @@ private struct SystemDetails: View {
 private struct CableSection: View {
     let monitor: CableMonitorSnapshot
     let chargingPower: ChargingPowerSnapshot
+    let isRefreshing: Bool
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -747,7 +1272,11 @@ private struct CableSection: View {
                 Label("USB-C 与线缆", systemImage: "cable.connector")
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
-                if let errorText = monitor.errorText {
+                if isRefreshing {
+                    Label("正在检测", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.blue)
+                } else if let errorText = monitor.errorText {
                     Label(errorText, systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.orange)
@@ -758,7 +1287,25 @@ private struct CableSection: View {
                 }
             }
 
-            if monitor.ports.isEmpty {
+            if isRefreshing {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("正在重新检测 USB-C 与线缆状态")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("检测组件完成后会显示最新端口数据")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(16)
+                .glassEffect(
+                    .clear,
+                    in: RoundedRectangle(cornerRadius: InterfaceMetrics.cardRadius, style: .continuous)
+                )
+            } else if monitor.ports.isEmpty {
                 HStack(spacing: 10) {
                     Image(systemName: "cable.connector.slash")
                         .font(.system(size: 22))
@@ -807,9 +1354,14 @@ private struct CableSection: View {
 private struct PortMonitorView: View {
     let monitor: CableMonitorSnapshot
     let chargingPower: ChargingPowerSnapshot
+    let isRefreshing: Bool
 
     var body: some View {
-        CableSection(monitor: monitor, chargingPower: chargingPower)
+        CableSection(
+            monitor: monitor,
+            chargingPower: chargingPower,
+            isRefreshing: isRefreshing
+        )
     }
 }
 
@@ -966,50 +1518,91 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
 
     var eyebrow: String {
         switch self {
-        case .monitor: return "MAC HEALTH"
-        case .traffic: return "PROCESS TRAFFIC"
-        case .ports: return "CONNECTED DEVICES"
-        case .cleanup: return "STORAGE CARE"
-        case .uninstall: return "APPLICATIONS"
+        case .monitor: return "SYSTEM / LIVE"
+        case .traffic: return "NETWORK / PROCESS"
+        case .ports: return "PORTS / POWER"
+        case .cleanup: return "STORAGE / ANALYSIS"
+        case .uninstall: return "APPS / MANAGEMENT"
         }
     }
 }
 
 enum InterfaceMetrics {
-    static let panelRadius: CGFloat = 28
-    static let cardRadius: CGFloat = 22
-    static let controlRadius: CGFloat = 14
+    static let panelRadius: CGFloat = 20
+    static let cardRadius: CGFloat = 16
+    static let controlRadius: CGFloat = 10
+    static let sidebarWidth: CGFloat = 210
 }
 
 enum InterfacePalette {
-    /// A restrained accent shared by navigation and primary actions.
-    static let accent = Color(red: 0.33, green: 0.40, blue: 0.47)
-    /// Neutral inset used behind glyphs so cards do not read as color swatches.
-    static let iconSurface = Color.primary.opacity(0.060)
-    static let cardStroke = Color.primary.opacity(0.075)
+    // The palette follows the app icon: cool telemetry blue with one magenta
+    // comparison series. Large surfaces stay neutral so live data carries color.
+    static let accent = Color(red: 0.000, green: 0.404, blue: 0.851)
+    static let signal = Color(red: 0.000, green: 0.650, blue: 0.780)
+    static let cpuSeries = Color(red: 0.000, green: 0.404, blue: 0.851)
+    static let memorySeries = Color(red: 0.722, green: 0.231, blue: 0.561)
+    static let temperature = Color(red: 0.835, green: 0.235, blue: 0.190)
+    static let download = Color(red: 0.060, green: 0.505, blue: 0.330)
+    static let upload = Color(red: 0.115, green: 0.420, blue: 0.825)
+    static let storage = Color(red: 0.690, green: 0.380, blue: 0.045)
+    static let fan = Color(red: 0.415, green: 0.330, blue: 0.745)
+    static let battery = Color(red: 0.130, green: 0.570, blue: 0.350)
+    static let power = Color(red: 0.680, green: 0.470, blue: 0.030)
+
+    static let iconSurface = Color.primary.opacity(0.055)
+    static let cardStroke = Color.primary.opacity(0.080)
+    static let separator = Color.primary.opacity(0.075)
+    static let chartGrid = Color.primary.opacity(0.060)
+    static let crosshair = Color.primary.opacity(0.28)
+
+    static func canvas(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.040, green: 0.050, blue: 0.064)
+            : Color(red: 0.945, green: 0.955, blue: 0.968)
+    }
+
+    static func sidebarSurface(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.055, green: 0.066, blue: 0.082)
+            : Color(red: 0.975, green: 0.980, blue: 0.987)
+    }
+
+    static func glassSurface(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.075, green: 0.088, blue: 0.108)
+            : Color.white.opacity(0.78)
+    }
 
     static func stableSurface(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
-            ? Color(red: 0.070, green: 0.074, blue: 0.080)
-            : Color(nsColor: .controlBackgroundColor)
+            ? Color(red: 0.070, green: 0.082, blue: 0.100)
+            : Color.white.opacity(0.72)
     }
 
     static func stableDashboardSurface(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
-            ? Color(red: 0.235, green: 0.240, blue: 0.250)
-            : Color(red: 0.975, green: 0.975, blue: 0.980)
+            ? Color(red: 0.082, green: 0.096, blue: 0.118)
+            : Color(red: 0.985, green: 0.988, blue: 0.993)
+    }
+
+    static func menuSurface(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.065, green: 0.078, blue: 0.096)
+            : Color(red: 0.970, green: 0.978, blue: 0.988)
     }
 }
 
 struct GlassCardModifier: ViewModifier {
     let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
-            .glassEffect(.clear, in: shape)
+            .background(InterfacePalette.glassSurface(for: colorScheme), in: shape)
             .overlay(shape.stroke(InterfacePalette.cardStroke, lineWidth: 0.75))
-            .shadow(color: Color.black.opacity(0.035), radius: 14, y: 6)
+            .clipShape(shape)
+            .shadow(color: Color.black.opacity(0.035), radius: 10, y: 3)
     }
 }
 
@@ -1124,54 +1717,47 @@ private struct SidebarNavigationItem: View {
     let action: () -> Void
     @State private var isHovering = false
 
-    @ViewBuilder
     var body: some View {
-        if isSelected {
-            navigationButton
-                .glassEffect(
-                    .clear.interactive(),
-                    in: RoundedRectangle(cornerRadius: InterfaceMetrics.controlRadius, style: .continuous)
-                )
-                .onHover { isHovering = $0 }
-        } else {
-            navigationButton
-                .onHover { isHovering = $0 }
-        }
-    }
-
-    private var navigationButton: some View {
         Button(action: action) {
-            HStack(spacing: 11) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(InterfacePalette.iconSurface)
-                    Image(systemName: section.symbol)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(isSelected ? section.tint : Color.secondary)
-                }
-                .frame(width: 38, height: 38)
+            HStack(spacing: 10) {
+                Image(systemName: section.symbol)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isSelected ? section.tint : Color.secondary)
+                    .frame(width: 24)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(section.rawValue)
-                        .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
                     Text(section.subtitle)
                         .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if isSelected {
-                    Capsule()
-                        .fill(section.tint.gradient)
-                        .frame(width: 4, height: 25)
-                }
             }
-            .padding(.horizontal, 11)
+            .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .contentShape(Rectangle())
-            .background(Color.primary.opacity(isHovering && !isSelected ? 0.045 : 0), in: RoundedRectangle(cornerRadius: InterfaceMetrics.controlRadius, style: .continuous))
+            .background(
+                isSelected
+                    ? section.tint.opacity(0.11)
+                    : Color.primary.opacity(isHovering ? 0.040 : 0),
+                in: RoundedRectangle(
+                    cornerRadius: InterfaceMetrics.controlRadius,
+                    style: .continuous
+                )
+            )
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Capsule()
+                        .fill(section.tint)
+                        .frame(width: 3, height: 24)
+                        .offset(x: 1)
+                }
+            }
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }
 
@@ -1186,95 +1772,89 @@ private struct DashboardView: View {
     var body: some View {
         ZStack {
             ambientBackground
-            HStack(spacing: 14) {
+            HStack(spacing: 0) {
                 sidebar
+                Rectangle()
+                    .fill(InterfacePalette.separator)
+                    .frame(width: 1)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 18) {
                         contentHeader
                         sectionContent
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 20)
+                    .padding(.top, 42)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 28)
                 }
                 .scrollClipDisabled(false)
                 .scrollEdgeEffectStyle(.soft, for: .bottom)
                 .id("\(selectedSection.id)-\(storagePage.rawValue)")
             }
-            .padding(12)
         }
-        .frame(minWidth: 1040, idealWidth: 1200, minHeight: 720, idealHeight: 860)
+        .frame(minWidth: 1060, idealWidth: 1180, minHeight: 720, idealHeight: 840)
         .background(WindowTransparencyConfigurator())
+        .onAppear {
+            updateResourceConsumers()
+        }
+        .onChange(of: selectedSection) { _, _ in
+            updateResourceConsumers()
+        }
+        .onDisappear {
+            model.updateActiveConsumers([
+                .expandedMetrics: false,
+                .processTable: false,
+                .cable: false
+            ])
+        }
+    }
+
+    private func updateResourceConsumers() {
+        model.updateActiveConsumers([
+            .expandedMetrics: selectedSection == .monitor || selectedSection == .ports,
+            .processTable: selectedSection == .monitor,
+            .cable: selectedSection == .ports
+        ])
     }
 
     @ViewBuilder
     private var sectionContent: some View {
         if selectedSection == .monitor {
-            VStack(spacing: 16) {
-                    ContentSectionLabel(title: "实时资源", subtitle: "每 2 秒自动更新")
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
-                    ], spacing: 12) {
-                        MetricCard(
-                            title: "处理器", value: String(format: "%.1f%%", model.snapshot.cpuPercent),
-                            subtitle: "所有核心的总占用", percent: model.snapshot.cpuPercent,
-                            color: .cyan, symbol: "cpu"
-                        )
-                        MetricCard(
-                            title: "内存", value: formatBytes(model.snapshot.memoryUsed),
-                            subtitle: "共 \(formatBytes(model.snapshot.memoryTotal))", percent: model.snapshot.memoryPercent,
-                            color: .purple, symbol: "memorychip"
-                        )
-                        MetricCard(
-                            title: "磁盘", value: formatStorageBytes(model.snapshot.diskUsed),
-                            subtitle: "共 \(formatStorageBytes(model.snapshot.diskTotal))", percent: model.snapshot.diskPercent,
-                            color: .orange, symbol: "internaldrive"
-                        )
-                        MetricCard(
-                            title: "实时网络", value: "↓ \(formatRate(model.snapshot.downloadBytesPerSecond))",
-                            subtitle: "↑ \(formatRate(model.snapshot.uploadBytesPerSecond)) · \(model.snapshot.networkInterface)", percent: nil,
-                            color: .green, symbol: "network"
-                        )
-                        MetricCard(
-                            title: "CPU 温度", value: formatTemperature(model.snapshot.cpuTemperature),
-                            subtitle: temperatureSubtitle(model.snapshot), percent: nil,
-                            color: .red, symbol: "thermometer.medium"
-                        )
-                        MetricCard(
-                            title: "风扇转速", value: formatFanSpeed(model.snapshot.fanSpeed),
-                            subtitle: fanSubtitle(model.snapshot), percent: nil,
-                            color: .indigo, symbol: "fan.fill"
-                        )
-                        MetricCard(
-                            title: "实时充电功率", value: formatBatteryChargePower(model.snapshot.chargingPower),
-                            subtitle: chargingPowerSubtitle(model.snapshot.chargingPower), percent: nil,
-                            color: .mint, symbol: "battery.100percent.bolt"
-                        )
-                        MetricCard(
-                            title: "电池与供电", value: model.snapshot.batteryText,
-                            subtitle: model.snapshot.powerSource, percent: model.snapshot.batteryPercent,
-                            color: .yellow, symbol: "bolt.circle.fill"
-                        )
-                    }
-                    ContentSectionLabel(title: "性能趋势", subtitle: "最近约 2 分钟")
-                    HStack(spacing: 12) {
-                        HistoryChart(title: "CPU 历史", value: model.snapshot.cpuPercent, values: model.cpuHistory, color: .cyan)
-                        HistoryChart(title: "内存历史", value: model.snapshot.memoryPercent, values: model.memoryHistory, color: .purple)
-                    }
-                    ContentSectionLabel(title: "活动与详情", subtitle: "本机只读数据")
-                    HStack(alignment: .top, spacing: 12) {
-                        ProcessTable(rows: model.snapshot.processes)
-                        SystemDetails(snapshot: model.snapshot)
-                    }
+            VStack(spacing: 14) {
+                TelemetryPulseStrip(
+                    snapshot: model.snapshot,
+                    isLoadingExpandedMetrics: model.isRefreshingExpandedMetrics
+                )
+
+                HStack(alignment: .top, spacing: 14) {
+                    CombinedLoadHistory(
+                        cpuValues: model.cpuHistory,
+                        memoryValues: model.memoryHistory,
+                        cpuValue: model.snapshot.cpuPercent,
+                        memoryValue: model.snapshot.memoryPercent
+                    )
+                    HardwareTelemetryPanel(
+                        snapshot: model.snapshot,
+                        isLoadingExpandedMetrics: model.isRefreshingExpandedMetrics
+                    )
+                }
+
+                HStack(alignment: .top, spacing: 14) {
+                    ProcessTable(rows: model.snapshot.processes)
+                    SystemDetails(
+                        snapshot: model.snapshot,
+                        isLoadingExpandedMetrics: model.isRefreshingExpandedMetrics
+                    )
+                }
             }
         } else if selectedSection == .traffic {
             ProcessTrafficView(model: processNetworkModel)
         } else if selectedSection == .ports {
             PortMonitorView(
                 monitor: model.snapshot.cableMonitor,
-                chargingPower: model.snapshot.chargingPower
+                chargingPower: model.isRefreshingExpandedMetrics
+                    ? ChargingPowerSnapshot()
+                    : model.snapshot.chargingPower,
+                isRefreshing: model.isRefreshingCable
             )
         } else if selectedSection == .cleanup {
             StorageCleanupView(model: storageModel, selectedPage: $storagePage)
@@ -1285,122 +1865,101 @@ private struct DashboardView: View {
 
     private var ambientBackground: some View {
         ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            if colorScheme == .dark {
-                Color.black.opacity(0.66)
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.025),
-                        Color.clear,
-                        Color.black.opacity(0.045)
-                    ],
-                    startPoint: .topTrailing,
-                    endPoint: .bottomLeading
-                )
-            } else {
-                Color.white.opacity(0.30)
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.10),
-                        Color.clear,
-                        Color.black.opacity(0.025)
-                    ],
-                    startPoint: .topTrailing,
-                    endPoint: .bottomLeading
-                )
-            }
+            InterfacePalette.canvas(for: colorScheme)
+            LinearGradient(
+                colors: [
+                    InterfacePalette.accent.opacity(colorScheme == .dark ? 0.055 : 0.035),
+                    Color.clear,
+                    Color.clear
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
         .ignoresSafeArea()
     }
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(LinearGradient(colors: [.cyan, .blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 46, height: 46)
+            HStack(spacing: 10) {
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Mac 资源监控")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                    Text("PERSONAL MAC CARE")
-                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("SYSTEM TELEMETRY")
+                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
                         .tracking(0.8)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
             }
 
             sidebarGroupLabel("概览")
-                .padding(.top, 32)
+                .padding(.top, 28)
 
-            GlassEffectContainer(spacing: 7) {
-                VStack(spacing: 5) {
-                    sidebarItem(.monitor)
-                    sidebarItem(.traffic)
-                }
+            VStack(spacing: 4) {
+                sidebarItem(.monitor)
+                sidebarItem(.traffic)
             }
 
-            sidebarGroupLabel("管理工具")
-                .padding(.top, 20)
+            sidebarGroupLabel("工具")
+                .padding(.top, 18)
 
-            GlassEffectContainer(spacing: 7) {
-                VStack(spacing: 5) {
-                    sidebarItem(.ports)
-                    sidebarItem(.cleanup)
-                    sidebarItem(.uninstall)
-                }
+            VStack(spacing: 4) {
+                sidebarItem(.ports)
+                sidebarItem(.cleanup)
+                sidebarItem(.uninstall)
             }
 
             Spacer()
 
-            VStack(alignment: .leading, spacing: 12) {
+            Rectangle()
+                .fill(InterfacePalette.separator)
+                .frame(height: 1)
+                .padding(.bottom, 13)
+
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 7) {
                     Circle()
-                        .fill(Color.green)
+                        .fill(InterfacePalette.download)
                         .frame(width: 7, height: 7)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Mac 状态在线")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("菜单栏持续监控")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.tertiary)
-                    }
+                    Text("后台采集中")
+                        .font(.system(size: 10, weight: .semibold))
+                    Spacer()
+                    Text(model.snapshot.updatedAt.formatted(date: .omitted, time: .shortened))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.tertiary)
                 }
-                HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Text(String(format: "%.0f%%", model.snapshot.cpuPercent))
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .font(.system(size: 20, weight: .semibold))
                     Text("CPU")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.secondary)
                     Spacer()
+                    Image(systemName: "thermometer.medium")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(InterfacePalette.temperature)
                     Text(formatTemperature(model.snapshot.cpuTemperature))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .font(.system(size: 11, weight: .medium))
                 }
             }
-            .padding(15)
-            .glassCard()
         }
-        .padding(.horizontal, 17)
-        .padding(.top, 46)
-        .padding(.bottom, 17)
-        .frame(width: 232)
-        .glassEffect(
-            .clear,
-            in: RoundedRectangle(cornerRadius: InterfaceMetrics.panelRadius, style: .continuous)
-        )
+        .padding(.horizontal, 14)
+        .padding(.top, 44)
+        .padding(.bottom, 16)
+        .frame(width: InterfaceMetrics.sidebarWidth)
+        .background(InterfacePalette.sidebarSurface(for: colorScheme))
     }
 
     private func sidebarGroupLabel(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 9, weight: .bold, design: .rounded))
-            .tracking(0.9)
-            .foregroundStyle(Color.primary.opacity(0.72))
-            .padding(.horizontal, 10)
-            .padding(.bottom, 8)
+        Text(title)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 7)
     }
 
     private func sidebarItem(_ section: DashboardSection) -> some View {
@@ -1415,109 +1974,84 @@ private struct DashboardView: View {
     }
 
     private var contentHeader: some View {
-        ZStack(alignment: .trailing) {
-            HStack(spacing: 24) {
-                if selectedSection != .uninstall {
-                    heroIndicator
-                }
-
-                VStack(alignment: .leading, spacing: 7) {
+        HStack(spacing: 20) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Capsule()
+                        .fill(selectedSection.tint)
+                        .frame(width: 14, height: 3)
                     Text(selectedSection.eyebrow)
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .tracking(1.2)
-                        .foregroundStyle(selectedSection.tint)
-                    Text(heroTitle)
-                        .font(.system(size: 29, weight: .bold, design: .rounded))
-                    Text(headerSubtitle)
-                        .font(.system(size: 12))
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(0.8)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                }
+                Text(heroTitle)
+                    .font(.system(size: 24, weight: .semibold))
+                Text(headerSubtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
-                    HStack(spacing: 8) {
-                        Label(heroStatusDetail, systemImage: "checkmark.shield.fill")
-                            .font(.system(size: 10, weight: .medium))
+                HStack(spacing: 8) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(selectedSection.tint)
+                            .frame(width: 6, height: 6)
+                        Text(heroStatusDetail)
+                            .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.primary.opacity(0.035), in: Capsule())
-                        Text(heroFootnote)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
                     }
-                }
-
-                Spacer(minLength: 20)
-
-                VStack(alignment: .trailing, spacing: 12) {
-                    Text(heroValue)
-                        .font(.system(size: 25, weight: .bold, design: .rounded))
-                        .monospacedDigit()
+                    Rectangle()
+                        .fill(InterfacePalette.separator)
+                        .frame(width: 1, height: 10)
+                    Text(heroFootnote)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
-                    Text(heroValueLabel)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        Button(action: performHeroAction) {
-                            Label(heroActionTitle, systemImage: "arrow.clockwise")
-                        }
-                        .buttonStyle(.glassProminent)
-                        .tint(selectedSection.tint)
-                        .disabled(isHeroActionDisabled)
-                    }
                 }
             }
-            .padding(24)
-        }
-        .frame(maxWidth: .infinity, minHeight: 164, alignment: .leading)
-        .glassCard(cornerRadius: InterfaceMetrics.panelRadius)
-    }
 
-    private var heroIndicator: some View {
-        ZStack {
-            Circle()
-                .fill(selectedSection.tint.opacity(0.10))
-            Circle()
-                .stroke(selectedSection.tint.opacity(0.10), lineWidth: 8)
-                .padding(8)
-            Circle()
-                .trim(from: 0, to: max(0.06, heroProgress))
-                .stroke(
-                    selectedSection.tint.gradient,
-                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-                .padding(8)
+            Spacer(minLength: 18)
 
-            if selectedSection == .monitor {
-                VStack(spacing: 1) {
-                    Text("\(Int((heroProgress * 100).rounded()))%")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                    Text("系统负载")
-                        .font(.system(size: 8, weight: .semibold))
-                }
-                .foregroundStyle(selectedSection.tint)
-            } else {
-                Image(systemName: selectedSection.symbol)
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(selectedSection.tint)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(heroValue)
+                    .font(.system(size: 21, weight: .semibold))
+                    .lineLimit(1)
+                Text(heroValueLabel)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.tertiary)
             }
+
+            Button(action: performHeroAction) {
+                Label(heroActionTitle, systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.glassProminent)
+            .tint(selectedSection.tint)
+            .disabled(isHeroActionDisabled)
         }
-        .frame(width: 100, height: 100)
-        .shadow(color: selectedSection.tint.opacity(0.28), radius: 22)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+        .stableDashboardCard(cornerRadius: InterfaceMetrics.panelRadius)
     }
 
     private var heroTitle: String {
         switch selectedSection {
         case .monitor:
-            if model.snapshot.thermalState != "正常" || model.snapshot.cpuPercent >= 85 || model.snapshot.memoryPercent >= 90 {
-                return "Mac 需要关注"
+            if (!model.isRefreshingExpandedMetrics && model.snapshot.thermalState != "正常")
+                || model.snapshot.cpuPercent >= 85
+                || model.snapshot.memoryPercent >= 90 {
+                return "系统负载需要关注"
             }
-            return "Mac 状态良好"
-        case .traffic: return "每个进程的流量都看得见"
-        case .ports: return "连接状态一目了然"
-        case .cleanup: return "为重要内容留出空间"
-        case .uninstall: return "让应用保持井然有序"
+            return "系统运行正常"
+        case .traffic: return "进程网络活动"
+        case .ports:
+            if model.isRefreshingCable { return "正在检测接口" }
+            return model.snapshot.cableMonitor.errorText == nil
+                ? "接口与供电状态"
+                : "接口数据需要重新检测"
+        case .cleanup: return "存储空间分析"
+        case .uninstall: return "已安装应用"
         }
     }
 
@@ -1533,14 +2067,21 @@ private struct DashboardView: View {
 
     private var heroFootnote: String {
         switch selectedSection {
-        case .monitor: return "最近更新 \(model.snapshot.updatedAt.formatted(date: .omitted, time: .shortened))"
+        case .monitor:
+            if model.isRefreshingExpandedMetrics { return "正在更新磁盘、风扇和电源信息" }
+            let date = model.snapshot.expandedMetricsUpdatedAt ?? model.snapshot.updatedAt
+            return "最近更新 \(date.formatted(date: .omitted, time: .shortened))"
         case .traffic:
             if let date = processNetworkModel.lastUpdatedAt {
                 return "最近采样 \(date.formatted(date: .omitted, time: .standard))"
             }
             return processNetworkModel.errorText ?? "正在建立流量基线"
         case .ports:
-            if let date = model.lastCableRefreshAt {
+            if model.isRefreshingCable { return "正在运行接口检测组件" }
+            if let error = model.snapshot.cableMonitor.errorText {
+                return error
+            }
+            if let date = model.snapshot.cableMonitor.updatedAt {
                 return "最近检测 \(date.formatted(date: .omitted, time: .standard))"
             }
             return "不会执行 USB 控制传输"
@@ -1553,7 +2094,10 @@ private struct DashboardView: View {
         switch selectedSection {
         case .monitor: return formatTemperature(model.snapshot.cpuTemperature)
         case .traffic: return "↓ \(formatRate(processNetworkModel.downloadBytesPerSecond))"
-        case .ports: return "\(model.snapshot.cableMonitor.activePorts.count) 个"
+        case .ports:
+            guard !model.isRefreshingCable,
+                  model.snapshot.cableMonitor.errorText == nil else { return "--" }
+            return "\(model.snapshot.cableMonitor.activePorts.count) 个"
         case .cleanup: return formatStorageBytes(storageModel.diskAvailable)
         case .uninstall: return "\(storageModel.installedApplications.count) 个"
         }
@@ -1563,26 +2107,13 @@ private struct DashboardView: View {
         switch selectedSection {
         case .monitor: return "当前 CPU 温度"
         case .traffic: return "↑ \(formatRate(processNetworkModel.uploadBytesPerSecond))"
-        case .ports: return "已连接端口"
+        case .ports:
+            if model.isRefreshingCable { return "正在检测" }
+            return model.snapshot.cableMonitor.errorText == nil
+                ? "已连接端口"
+                : "上次结果可能已过期"
         case .cleanup: return "磁盘可用空间"
         case .uninstall: return "已识别第三方应用"
-        }
-    }
-
-    private var heroProgress: Double {
-        switch selectedSection {
-        case .monitor:
-            return min(1, max(model.snapshot.cpuPercent, model.snapshot.memoryPercent) / 100)
-        case .traffic:
-            let total = processNetworkModel.downloadBytesPerSecond + processNetworkModel.uploadBytesPerSecond
-            return total > 0 ? min(1, log10(total + 1) / 8) : 0.06
-        case .ports:
-            let total = model.snapshot.cableMonitor.ports.count
-            return total > 0 ? Double(model.snapshot.cableMonitor.activePorts.count) / Double(total) : 0.06
-        case .cleanup:
-            return storageModel.diskTotal > 0 ? min(1, Double(storageModel.diskUsed) / Double(storageModel.diskTotal)) : 0.06
-        case .uninstall:
-            return 0
         }
     }
 
@@ -1635,199 +2166,299 @@ private struct DashboardView: View {
 }
 
 private struct MenuBarPresentationState {
-    var resource = ResourceSnapshot()
     var traffic = ProcessTrafficDisplayState()
 }
 
 private struct MenuBarPanel: View {
-    let model: MonitorModel
+    @ObservedObject var model: MonitorModel
     let processNetworkModel: ProcessNetworkMonitor
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
     @State private var presentation = MenuBarPresentationState()
 
     var body: some View {
-        ZStack {
-            menuBackground
+        VStack(spacing: 0) {
+            menuHeader
+                .padding(.horizontal, 16)
+                .padding(.top, 15)
+                .padding(.bottom, 13)
 
-            VStack(spacing: 12) {
-                HStack(alignment: .center, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Mac 状态")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(Color.green)
-                                .frame(width: 7, height: 7)
-                            Text("实时监控中")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    Text(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                }
+            menuDivider
 
-                HStack(spacing: 10) {
-                    primaryMenuMetric(
-                        title: "CPU 温度",
-                        value: formatTemperature(snapshot.cpuTemperature),
-                        subtitle: snapshot.hottestCPUTemperature.map { String(format: "最高 %.1f°C", $0) } ?? "传感器不可用",
-                        symbol: "thermometer.medium",
-                        color: .red
-                    )
-                    primaryMenuMetric(
-                        title: "实时网络",
-                        value: "↓ \(formatRate(snapshot.downloadBytesPerSecond))",
-                        subtitle: "↑ \(formatRate(snapshot.uploadBytesPerSecond)) · \(snapshot.networkInterface)",
-                        symbol: "arrow.down.arrow.up",
-                        color: .green
-                    )
-                }
+            primaryVitals
+                .padding(16)
 
-                HStack(spacing: 8) {
-                    compactMenuMetric("CPU", String(format: "%.0f%%", snapshot.cpuPercent))
-                    compactMenuMetric("内存", String(format: "%.0f%%", snapshot.memoryPercent))
-                    compactMenuMetric("风扇", compactFanSpeed(snapshot.fanSpeed))
-                }
+            menuDivider
 
-                processTrafficRanking
+            processTrafficRanking
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
 
-                HStack(spacing: 10) {
-                    Image(systemName: cableStatusSymbol)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(cableStatusColor)
-                        .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(cableStatusTitle)
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(cableStatusSubtitle)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Text(formatBatteryChargePower(snapshot.chargingPower))
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.mint)
-                        .monospacedDigit()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .stableMenuCard(cornerRadius: 14)
+            menuDivider
 
-                Button {
-                    NSApp.setActivationPolicy(.regular)
-                    openWindow(id: "dashboard")
-                    NSApp.activate(ignoringOtherApps: true)
-                } label: {
-                    Label("打开监控面板", systemImage: "macwindow")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(InterfacePalette.accent)
+            hardwareSummary
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
 
-                HStack {
-                    Text("只读监控 · 每 2 秒更新")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                    Spacer()
-                    Button("退出") { NSApplication.shared.terminate(nil) }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, weight: .medium))
-                }
-                .padding(.horizontal, 2)
-            }
-            .padding(14)
+            menuDivider
+
+            menuFooter
+                .padding(14)
         }
-        .frame(width: 350)
+        .frame(width: 360)
+        .background(menuBackground)
         .background(WindowTransparencyConfigurator())
         .onAppear {
             presentation = MenuBarPresentationState(
-                resource: model.snapshot,
                 traffic: processNetworkModel.displayState
             )
+            model.setActive(true, for: .menuBar)
             processNetworkModel.setActive(true, for: .menuBar)
         }
-        .onDisappear { processNetworkModel.setActive(false, for: .menuBar) }
+        .onDisappear {
+            model.setActive(false, for: .menuBar)
+            processNetworkModel.setActive(false, for: .menuBar)
+        }
         .onReceive(processNetworkModel.$displayState) { traffic in
             presentation = MenuBarPresentationState(
-                resource: model.snapshot,
                 traffic: traffic
             )
         }
     }
 
-    private var snapshot: ResourceSnapshot { presentation.resource }
+    private var snapshot: ResourceSnapshot { model.snapshot }
     private var menuTraffic: ProcessTrafficDisplayState { presentation.traffic }
 
-    private var menuBackground: some View {
-        ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(colorScheme == .dark ? 0.14 : 0.22),
-                    InterfacePalette.accent.opacity(colorScheme == .dark ? 0.055 : 0.035),
-                    Color.white.opacity(colorScheme == .dark ? 0.045 : 0.10)
-                ],
-                startPoint: .topTrailing,
-                endPoint: .bottomLeading
+    private var menuHeader: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Mac 资源监控")
+                    .font(.system(size: 13, weight: .semibold))
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(healthStatusColor)
+                        .frame(width: 6, height: 6)
+                    Text(healthStatusTitle)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(
+                    model.isRefreshingExpandedMetrics
+                        ? "更新中"
+                        : snapshot.updatedAt.formatted(
+                            date: .omitted,
+                            time: .shortened
+                        )
+                )
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                Text(snapshot.networkInterface)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var primaryVitals: some View {
+        VStack(spacing: 14) {
+            HStack(alignment: .top, spacing: 18) {
+                HStack(alignment: .top, spacing: 10) {
+                    Capsule()
+                        .fill(InterfacePalette.temperature)
+                        .frame(width: 3, height: 54)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("CPU 温度")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text(formatTemperature(snapshot.cpuTemperature))
+                            .font(.system(size: 30, weight: .semibold))
+                            .lineLimit(1)
+                        Text(
+                            snapshot.hottestCPUTemperature.map {
+                                String(format: "传感器峰值 %.1f°C", $0)
+                            } ?? "温度传感器不可用"
+                        )
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                    }
+                }
+
+                Spacer(minLength: 4)
+
+                VStack(spacing: 10) {
+                    menuLoadMetric(
+                        "CPU",
+                        value: snapshot.cpuPercent,
+                        color: InterfacePalette.cpuSeries
+                    )
+                    menuLoadMetric(
+                        "内存",
+                        value: snapshot.memoryPercent,
+                        color: InterfacePalette.memorySeries
+                    )
+                }
+                .frame(width: 126)
+            }
+
+            HStack(spacing: 12) {
+                menuNetworkMetric(
+                    "下载",
+                    value: snapshot.downloadBytesPerSecond,
+                    symbol: "arrow.down",
+                    color: InterfacePalette.download
+                )
+                Rectangle()
+                    .fill(InterfacePalette.separator)
+                    .frame(width: 1, height: 28)
+                menuNetworkMetric(
+                    "上传",
+                    value: snapshot.uploadBytesPerSecond,
+                    symbol: "arrow.up",
+                    color: InterfacePalette.upload
+                )
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                Color.primary.opacity(0.035),
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
             )
         }
-        .ignoresSafeArea()
+    }
+
+    private func menuLoadMetric(
+        _ title: String,
+        value: Double,
+        color: Color
+    ) -> some View {
+        VStack(spacing: 5) {
+            HStack {
+                HStack(spacing: 5) {
+                    Capsule()
+                        .fill(color)
+                        .frame(width: 10, height: 3)
+                    Text(title)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(Int(value.rounded()))%")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(color.opacity(0.13))
+                    Capsule()
+                        .fill(color)
+                        .frame(
+                            width: geometry.size.width
+                                * min(1, max(0, value / 100))
+                        )
+                }
+            }
+            .frame(height: 3)
+        }
+    }
+
+    private func menuNetworkMetric(
+        _ title: String,
+        value: Double,
+        symbol: String,
+        color: Color
+    ) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                Text(formatRate(value))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var topTrafficRows: [ProcessTrafficRow] {
-        Array(menuTraffic.rows
-            .sorted { $0.currentBytesPerSecond > $1.currentBytesPerSecond }
-            .prefix(5))
+        Array(
+            menuTraffic.rows
+                .filter { $0.currentBytesPerSecond > 0 }
+                .sorted { $0.currentBytesPerSecond > $1.currentBytesPerSecond }
+                .prefix(3)
+        )
     }
 
     private var processTrafficRanking: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 9) {
             HStack(spacing: 7) {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.green)
-                Text("进程流量 Top 5")
+                Text("活跃进程")
                     .font(.system(size: 10, weight: .semibold))
                 Spacer()
-                Text("↓\(formatMenuBarRate(menuTraffic.downloadBytesPerSecond))  ↑\(formatMenuBarRate(menuTraffic.uploadBytesPerSecond))")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                Text(
+                    "↓\(formatMenuBarRate(menuTraffic.downloadBytesPerSecond))  "
+                        + "↑\(formatMenuBarRate(menuTraffic.uploadBytesPerSecond))"
+                )
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
             }
 
-            if topTrafficRows.isEmpty {
+            if let error = menuTraffic.errorText {
                 HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text(menuTraffic.errorText ?? "正在建立进程流量基线")
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.orange)
+                    Text(error)
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
-                    Spacer()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(error)
+                    Spacer(minLength: 0)
                 }
-                .frame(height: 24)
+                .frame(minHeight: 25)
+            } else if topTrafficRows.isEmpty {
+                HStack(spacing: 8) {
+                    if menuTraffic.lastUpdatedAt == nil {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("正在建立进程流量基线")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("当前没有活跃进程流量")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 25)
             } else {
-                ForEach(Array(topTrafficRows.enumerated()), id: \.element.id) { index, row in
-                    menuTrafficRow(row, rank: index + 1)
+                ForEach(topTrafficRows) { row in
+                    menuTrafficRow(row)
                 }
             }
         }
-        .padding(12)
-        .stableMenuCard(cornerRadius: 16)
     }
 
-    private func menuTrafficRow(_ row: ProcessTrafficRow, rank: Int) -> some View {
-        HStack(spacing: 7) {
-            Text("\(rank)")
-                .font(.system(size: 8, weight: .semibold, design: .rounded))
-                .foregroundStyle(.tertiary)
-                .frame(width: 10, alignment: .trailing)
-
+    private func menuTrafficRow(_ row: ProcessTrafficRow) -> some View {
+        HStack(spacing: 8) {
             menuTrafficIcon(pid: row.pid, name: row.name)
 
             Text(row.name)
@@ -1835,16 +2466,20 @@ private struct MenuBarPanel: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text("↓\(formatMenuBarRate(row.downloadBytesPerSecond))")
-                .foregroundStyle(.green)
-                .frame(width: 46, alignment: .trailing)
-            Text("↑\(formatMenuBarRate(row.uploadBytesPerSecond))")
-                .foregroundStyle(.blue)
-                .frame(width: 46, alignment: .trailing)
+            HStack(spacing: 2) {
+                Image(systemName: "arrow.down")
+                    .foregroundStyle(InterfacePalette.download)
+                Text(formatMenuBarRate(row.downloadBytesPerSecond))
+            }
+            .frame(width: 50, alignment: .trailing)
+            HStack(spacing: 2) {
+                Image(systemName: "arrow.up")
+                    .foregroundStyle(InterfacePalette.upload)
+                Text(formatMenuBarRate(row.uploadBytesPerSecond))
+            }
+            .frame(width: 50, alignment: .trailing)
         }
-        .font(.system(size: 8, weight: .medium, design: .rounded))
-        .monospacedDigit()
-        .padding(.vertical, 1)
+        .font(.system(size: 8, weight: .medium, design: .monospaced))
     }
 
     @ViewBuilder
@@ -1853,91 +2488,159 @@ private struct MenuBarPanel: View {
             Image(nsImage: icon)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 18, height: 18)
+                .frame(width: 20, height: 20)
         } else {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(InterfacePalette.iconSurface)
                 .overlay {
                     Text(String(name.prefix(1)).uppercased())
-                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
-                .frame(width: 18, height: 18)
+                .frame(width: 20, height: 20)
         }
     }
 
-    private func primaryMenuMetric(title: String, value: String, subtitle: String, symbol: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 7) {
+    private var hardwareSummary: some View {
+        HStack(spacing: 0) {
+            menuHardwareMetric(
+                title: "风扇",
+                value: model.isRefreshingExpandedMetrics
+                    ? "--"
+                    : compactFanSpeed(snapshot.fanSpeed),
+                detail: snapshot.fanCount > 0 ? "\(snapshot.fanCount) 个" : "未检测",
+                symbol: "fan.fill",
+                color: InterfacePalette.fan
+            )
+            hardwareDivider
+            menuHardwareMetric(
+                title: "电源",
+                value: model.isRefreshingExpandedMetrics
+                    ? "--"
+                    : formatBatteryChargePower(snapshot.chargingPower),
+                detail: model.isRefreshingExpandedMetrics
+                    ? "读取中"
+                    : snapshot.powerSource,
+                symbol: "bolt.fill",
+                color: InterfacePalette.power
+            )
+            hardwareDivider
+            menuHardwareMetric(
+                title: "接口",
+                value: model.isRefreshingCable
+                    ? "--"
+                    : "\(snapshot.cableMonitor.activePorts.count) 个",
+                detail: portStatusDetail,
+                symbol: "cable.connector",
+                color: portStatusColor
+            )
+        }
+    }
+
+    private func menuHardwareMetric(
+        title: String,
+        value: String,
+        detail: String,
+        symbol: String,
+        color: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
                 Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(color)
                 Text(title)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(.tertiary)
             }
             Text(value)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .monospacedDigit()
+                .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
-            Text(subtitle)
-                .font(.system(size: 9))
+            Text(detail)
+                .font(.system(size: 8))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 106, alignment: .topLeading)
-        .stableMenuCard(cornerRadius: 16)
-    }
-
-    private func compactMenuMetric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .stableMenuCard(cornerRadius: 13)
+        .padding(.horizontal, 9)
     }
 
-    private var cableStatusTitle: String {
-        let active = snapshot.cableMonitor.activePorts.count
-        let total = snapshot.cableMonitor.ports.count
-        return "接口状态 · \(active)/\(total) 已连接"
+    private var hardwareDivider: some View {
+        Rectangle()
+            .fill(InterfacePalette.separator)
+            .frame(width: 1, height: 42)
     }
 
-    private var cableStatusSubtitle: String {
-        if let error = snapshot.cableMonitor.errorText,
-           snapshot.cableMonitor.ports.isEmpty {
-            return error
+    private var menuFooter: some View {
+        VStack(spacing: 9) {
+            Button {
+                NSApp.setActivationPolicy(.regular)
+                openWindow(id: "dashboard")
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                Label("打开监控面板", systemImage: "macwindow")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(InterfacePalette.accent)
+
+            HStack {
+                Label("本机只读 · 每 2 秒更新", systemImage: "lock.shield")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button("退出") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 9, weight: .medium))
+            }
+            .padding(.horizontal, 2)
         }
-        guard let port = snapshot.cableMonitor.activePorts.first else {
-            return "没有连接的 USB-C 或雷雳设备"
+    }
+
+    private var menuDivider: some View {
+        Rectangle()
+            .fill(InterfacePalette.separator)
+            .frame(height: 1)
+    }
+
+    private var menuBackground: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            InterfacePalette.menuSurface(for: colorScheme)
+                .opacity(colorScheme == .dark ? 0.90 : 0.82)
         }
-        return "\(port.displayName) · \(menuCableSubtitle(port))"
+        .ignoresSafeArea()
     }
 
-    private var cableStatusSymbol: String {
-        snapshot.cableMonitor.activePorts.isEmpty ? "cable.connector.slash" : "cable.connector"
+    private var healthStatusTitle: String {
+        if snapshot.cpuPercent >= 85
+            || snapshot.memoryPercent >= 90
+            || (!model.isRefreshingExpandedMetrics
+                && snapshot.thermalState != "正常") {
+            return "需要关注"
+        }
+        return "系统运行正常"
     }
 
-    private var cableStatusColor: Color {
-        snapshot.cableMonitor.errorText == nil ? .blue : .orange
+    private var healthStatusColor: Color {
+        healthStatusTitle == "系统运行正常"
+            ? InterfacePalette.download
+            : .orange
     }
-}
 
-private func menuCableSubtitle(_ port: CablePortSnapshot) -> String {
-    if let warning = port.warning { return warning }
-    if let power = port.negotiatedPower { return "\(port.stateTitle) · \(power)" }
-    if let link = port.dataLinkSummary { return link }
-    return port.stateTitle
+    private var portStatusDetail: String {
+        if model.isRefreshingCable { return "检测中" }
+        if snapshot.cableMonitor.errorText != nil { return "需刷新" }
+        return snapshot.cableMonitor.activePorts.first?.displayName ?? "未连接"
+    }
+
+    private var portStatusColor: Color {
+        if snapshot.cableMonitor.errorText != nil { return .orange }
+        return InterfacePalette.accent
+    }
 }
 
 private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
@@ -2006,21 +2709,9 @@ private func formatTemperature(_ value: Double?) -> String {
     return String(format: "%.1f°C", value)
 }
 
-private func temperatureSubtitle(_ snapshot: ResourceSnapshot) -> String {
-    guard let hottest = snapshot.hottestCPUTemperature else { return "未能读取 SMC 温度传感器" }
-    return String(format: "最高 %.1f°C · M5 传感器平均", hottest)
-}
-
 private func formatFanSpeed(_ value: Double?) -> String {
     guard let value else { return "不可用" }
     return "\(Int(value.rounded())) RPM"
-}
-
-private func fanSubtitle(_ snapshot: ResourceSnapshot) -> String {
-    guard snapshot.fanCount > 0 else { return "未检测到内置风扇" }
-    let countText = snapshot.fanCount == 1 ? "1 个内置风扇" : "\(snapshot.fanCount) 个内置风扇"
-    if snapshot.fanSpeed == 0 { return "\(countText) · 当前停转" }
-    return "\(countText) · 自动控制"
 }
 
 private func formatBatteryChargePower(_ power: ChargingPowerSnapshot) -> String {
@@ -2028,19 +2719,6 @@ private func formatBatteryChargePower(_ power: ChargingPowerSnapshot) -> String 
     guard power.isCharging else { return "未充电" }
     guard let watts = power.batteryChargeWatts else { return "检测中" }
     return String(format: "%.1f W", watts)
-}
-
-private func chargingPowerSubtitle(_ power: ChargingPowerSnapshot) -> String {
-    guard power.externalConnected else { return "连接充电器后显示实时功率" }
-    var parts: [String] = []
-    if let input = power.inputWatts {
-        parts.append(String(format: "适配器输入 %.1f W", input))
-    }
-    if let load = power.systemLoadWatts {
-        parts.append(String(format: "系统使用 %.1f W", load))
-    }
-    if !power.isCharging { parts.append("电池当前未充电") }
-    return parts.isEmpty ? "正在读取电源传感器" : parts.joined(separator: " · ")
 }
 
 private func formatUptime(_ interval: TimeInterval) -> String {

@@ -12,13 +12,13 @@
   <img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-111111?logo=apple">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.5.1-7C3AED">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.5.3-7C3AED">
   <img alt="CI" src="https://github.com/svsvnm/MacResourceMonitor/actions/workflows/ci.yml/badge.svg">
 </p>
 
 Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-C/Thunderbolt 端口、磁盘空间分析、安全清理和应用卸载整合到一个 SwiftUI 应用中。主窗口采用 macOS 26 原生 Liquid Glass，关闭窗口后应用仍会留在菜单栏继续采集轻量级系统数据；进程流量仅在菜单弹窗或流量页面可见时采样。
 
-> 当前版本：**2.5.1（Build 41）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
+> 当前版本：**2.5.3（Build 43）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
 
 ## 功能概览
 
@@ -29,6 +29,22 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 | 接口监测 | USB-C、MagSafe、USB4、Thunderbolt、DisplayPort、USB-PD 和线缆 E-Marker |
 | 存储清理 | 磁盘概览、主要目录排行、500 MB 以上大文件、缓存/日志/Xcode/废纸篓清理 |
 | 应用卸载 | 第三方应用大小排行、Finder 定位、应用本体及精确 Bundle ID 残留移入废纸篓 |
+
+## 2.5.3 更新
+
+- 重构主窗口与菜单栏界面：采用紧凑遥测工作台、合并负载趋势、统一数据色彩与更清晰的信息层级，减少重复卡片和装饰性玻璃效果。
+- 为 CPU/内存历史趋势加入辅助功能采样浏览，并修复深色模式小字号数据色对比度。
+- 菜单栏仅显示当前有实时流量的进程；采样失败时清除陈旧速率并优先展示可悬停查看的错误信息。
+
+## 2.5.2 更新
+
+- 扩展 Apple Silicon 温度传感器支持范围，按 M1–M5 芯片代际选择对应的 SMC 键。
+- 网络速率改用 64 位接口计数器，并在 Wi-Fi、有线网络或 VPN 导致主接口变化时重建采样基线。
+- 修复进程 PID 复用、累计流量清零与在途采样竞态，避免流量串账或旧数据回写。
+- 按窗口、菜单和页面可见性启停进程、SMC、电源及线缆等昂贵采集，降低后台 CPU 唤醒和耗电。
+- 强化扩展指标与线缆结果的新鲜度管理，旧采集不会再覆盖新请求的加载状态。
+- 存储扫描改用有界并发的独立 `du -sk` 任务，正确处理硬链接、全局超时、权限受限和部分结果。
+- 大文件按实际已分配空间统计，并扩展 Spotlight 物理大小筛选，避免稀疏文件容量高估或边界文件漏检。
 
 ## 2.5.1 更新
 
@@ -137,11 +153,11 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 
 ## 系统监控
 
-- 每 2 秒刷新 CPU、内存、磁盘和主要网络接口数据。
+- 每 2 秒刷新 CPU、内存和主要网络接口数据，使用 64 位接口计数器并在主接口切换时重建速率基线。
 - 显示最近约 2 分钟的 CPU 与内存趋势。
-- 读取 Apple SMC 中可用的 CPU 温度传感器，展示平均值和最高值。
+- 根据 M1–M5 芯片代际选择 Apple SMC CPU 温度传感器，展示平均值和最高值。
 - 读取内置风扇数量与实时转速；低温停转时明确显示 `0 RPM`。
-- 展示 CPU 占用较高的进程、PID、CPU 比例和内存占用。
+- 仅在系统监控页面可见时读取 CPU 占用较高的进程、PID、CPU 比例和内存占用。
 - 展示电池状态、供电方式、系统热状态、开机时长和设备名称。
 - 菜单栏标题固定显示 CPU 温度与网络上下行速度，弹窗内可查看主要指标和已连接接口。
 
@@ -184,7 +200,8 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 
 - 按实际大小列出 `/Applications`、个人目录和 `~/Library` 中的主要占用项。
 - 继续拆分 `Application Support`、应用容器、共享容器和开发工具数据，避免只显示一个笼统的“Library 很大”。
-- 使用本机 Spotlight 索引列出 500 MB 以上的大文件，最多显示 20 项。
+- 使用本机 Spotlight 索引列出实际磁盘占用 500 MB 以上的大文件，最多显示 20 项；稀疏文件按已分配空间计算。
+- 目录和应用大小使用分批 `du` 统计，避免逐项启动外部进程；超时或权限受限时明确提示结果不完整。
 - 每个目录和大文件都可以在 Finder 中定位。
 - 大文件与个人目录只读展示，不会进入一键清理范围。
 
@@ -220,7 +237,8 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 
 ## 菜单栏与窗口行为
 
-- 关闭主窗口不会退出应用，Dock 图标会隐藏，菜单栏轻量级系统监控继续运行；进程流量在菜单弹窗关闭后停止采样。
+- 关闭主窗口不会退出应用，Dock 图标会隐藏，菜单栏仅保留 CPU、内存、温度和网络等轻量采集；进程排行、风扇、电源和线缆 helper 按面板可见性启停。
+- 进程流量在菜单弹窗和流量页面都关闭后停止采样。
 - 菜单栏弹窗可重新打开主面板或退出程序。
 - 菜单栏弹窗展示当前进程流量 Top 5，以及每个进程的实时下载和上传速度。
 - 菜单弹窗的系统指标和进程流量 Top 5 均约每 2 秒更新，主面板进程流量同样约每 2 秒更新。
@@ -247,7 +265,7 @@ Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-
 
 ## 下载与安装
 
-从 [GitHub Releases](https://github.com/svsvnm/MacResourceMonitor/releases/latest) 下载 `MacResourceMonitor-2.5.1.zip`，解压后将“Mac资源监控.app”拖入“应用程序”目录。
+从 [GitHub Releases](https://github.com/svsvnm/MacResourceMonitor/releases/latest) 下载 `MacResourceMonitor-2.5.3.zip`，解压后将“Mac资源监控.app”拖入“应用程序”目录。
 
 Release 压缩包由 GitHub Actions 在 macOS 26 构建机上从对应标签源码生成并完成 ad-hoc 签名。目前未进行 Apple Developer ID 签名或公证；如 Gatekeeper 阻止首次打开，请在 Finder 中右键应用并选择“打开”，确认来源后继续。
 
@@ -353,8 +371,8 @@ MacResourceMonitor/
 
 ## 版本信息
 
-- App 版本：2.5.1
-- Build：41
+- App 版本：2.5.3
+- Build：43
 - Bundle ID：`io.github.svsvnm.MacResourceMonitor`
 - 最低系统版本：macOS 26.0
 - 构建架构：arm64

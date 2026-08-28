@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import Darwin
 
 struct CleanupCategory: Identifiable, Equatable {
     enum Kind: String {
@@ -49,6 +50,66 @@ struct LargeFileItem: Identifiable, Equatable {
     let bytes: UInt64
 }
 
+private struct DirectorySizeScanResult {
+    var sizes: [String: UInt64] = [:]
+    var isComplete = true
+}
+
+private struct DirectoryChildrenResult {
+    var urls: [URL] = []
+    var isComplete = true
+}
+
+private enum PathExistence {
+    case exists
+    case missing
+    case inaccessible
+}
+
+private final class DirectorySizeScanAccumulator: @unchecked Sendable {
+    private let paths: [String]
+    private let lock = NSLock()
+    private var nextIndex = 0
+    private var scan = DirectorySizeScanResult()
+
+    init(paths: [String]) {
+        self.paths = paths
+    }
+
+    func nextPath(before deadline: TimeInterval) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard nextIndex < paths.count else { return nil }
+        guard ProcessInfo.processInfo.systemUptime < deadline else {
+            scan.isComplete = false
+            return nil
+        }
+        defer { nextIndex += 1 }
+        return paths[nextIndex]
+    }
+
+    func record(path: String, bytes: UInt64?, isComplete: Bool) {
+        lock.lock()
+        if let bytes {
+            scan.sizes[path] = bytes
+        }
+        scan.isComplete = scan.isComplete && isComplete && bytes != nil
+        lock.unlock()
+    }
+
+    func markIncomplete() {
+        lock.lock()
+        scan.isComplete = false
+        lock.unlock()
+    }
+
+    var result: DirectorySizeScanResult {
+        lock.lock()
+        defer { lock.unlock() }
+        return scan
+    }
+}
+
 @MainActor
 final class StorageManager: ObservableObject {
     @Published var cleanupCategories: [CleanupCategory] = []
@@ -61,6 +122,10 @@ final class StorageManager: ObservableObject {
     @Published var isCleaning = false
     @Published var uninstallingAppID: String?
     @Published var cleanupMessage: String?
+    @Published var cleanupErrorText: String?
+    @Published var cleanupScanMessage: String?
+    @Published var storageScanMessage: String?
+    @Published var applicationScanMessage: String?
     @Published var uninstallMessage: String?
     @Published var diskUsed: UInt64 = 0
     @Published var diskTotal: UInt64 = 0
@@ -77,10 +142,14 @@ final class StorageManager: ObservableObject {
         cleanupCategories.contains { $0.kind == .trash && $0.isSelected }
     }
 
-    func scanCleanup() {
+    func scanCleanup(clearMessage: Bool = true) {
         guard !isScanningCleanup, !isCleaning else { return }
         isScanningCleanup = true
-        cleanupMessage = nil
+        cleanupScanMessage = nil
+        if clearMessage {
+            cleanupMessage = nil
+            cleanupErrorText = nil
+        }
         let disk = Self.diskUsage()
         diskUsed = disk.used
         diskTotal = disk.total
@@ -88,8 +157,10 @@ final class StorageManager: ObservableObject {
         let previousSelection = Dictionary(uniqueKeysWithValues: cleanupCategories.map { ($0.kind, $0.isSelected) })
 
         worker.async { [weak self] in
+            var scanComplete = true
             let categories = Self.cleanupDefinitions().map { definition -> CleanupCategory in
                 let size = Self.directoryStats(atPath: definition.path)
+                scanComplete = scanComplete && size.isComplete
                 var result = definition
                 result.bytes = size.bytes
                 result.itemCount = size.items
@@ -102,6 +173,9 @@ final class StorageManager: ObservableObject {
                 guard let self else { return }
                 self.cleanupCategories = categories
                 self.isScanningCleanup = false
+                if !scanComplete {
+                    self.cleanupScanMessage = "部分目录未能完整统计，显示容量可能偏小"
+                }
             }
         }
     }
@@ -114,25 +188,29 @@ final class StorageManager: ObservableObject {
     func scanStorageUsage() {
         guard !isScanningStorageUsage else { return }
         isScanningStorageUsage = true
+        storageScanMessage = nil
         let disk = Self.diskUsage()
         diskUsed = disk.used
         diskTotal = disk.total
         diskAvailable = disk.available
 
         analysisWorker.async { [weak self] in
-            let locations = Self.storageUsageInventory()
-            let files = Self.largeFileInventory()
+            let locationResult = Self.storageUsageInventory()
+            let fileResult = Self.largeFileInventory()
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.storageLocations = locations
-                self.largeFiles = files
+                self.storageLocations = locationResult.locations
+                self.largeFiles = fileResult.files
                 self.isScanningStorageUsage = false
+                if !locationResult.isComplete || !fileResult.isComplete {
+                    self.storageScanMessage = "部分目录或 Spotlight 结果未能完整读取"
+                }
             }
         }
     }
 
     func cleanSelected() {
-        guard !isCleaning else { return }
+        guard !isCleaning, !isScanningCleanup else { return }
         let selected = cleanupCategories.filter { $0.isSelected && $0.bytes > 0 }
         guard !selected.isEmpty else {
             cleanupMessage = "没有可清理的所选项目"
@@ -140,24 +218,34 @@ final class StorageManager: ObservableObject {
         }
         isCleaning = true
         cleanupMessage = nil
+        cleanupErrorText = nil
 
         worker.async { [weak self] in
             var removedBytes: UInt64 = 0
             var failureCount = 0
+            var measurementComplete = true
             for category in selected {
                 let result = Self.cleanContents(of: category)
                 removedBytes += result.removedBytes
                 failureCount += result.failures
+                measurementComplete = measurementComplete && result.measurementComplete
             }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.isCleaning = false
-                if failureCount == 0 {
+                if failureCount == 0, measurementComplete {
                     self.cleanupMessage = "已清理 \(storageFormatBytes(removedBytes))"
                 } else {
-                    self.cleanupMessage = "已清理 \(storageFormatBytes(removedBytes))，\(failureCount) 项因正在使用或权限不足而保留"
+                    var details: [String] = []
+                    if failureCount > 0 {
+                        details.append("\(failureCount) 项因正在使用或权限不足而保留")
+                    }
+                    if !measurementComplete {
+                        details.append("释放空间统计可能不完整")
+                    }
+                    self.cleanupErrorText = "已清理 \(storageFormatBytes(removedBytes))，\(details.joined(separator: "；"))"
                 }
-                self.scanCleanup()
+                self.scanCleanup(clearMessage: false)
             }
         }
     }
@@ -165,14 +253,18 @@ final class StorageManager: ObservableObject {
     func scanApplications() {
         guard !isScanningApplications, uninstallingAppID == nil else { return }
         isScanningApplications = true
+        applicationScanMessage = nil
         uninstallMessage = nil
 
         worker.async { [weak self] in
-            let applications = Self.applicationInventory()
+            let result = Self.applicationInventory()
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.installedApplications = applications
+                self.installedApplications = result.applications
                 self.isScanningApplications = false
+                if !result.isComplete {
+                    self.applicationScanMessage = "无法完整统计部分应用的占用空间"
+                }
             }
         }
     }
@@ -268,12 +360,16 @@ final class StorageManager: ObservableObject {
         ]
     }
 
-    private nonisolated static func storageLocationDefinitions() -> [StorageLocation] {
+    private nonisolated static func storageLocationDefinitions() -> (
+        locations: [StorageLocation],
+        isComplete: Bool
+    ) {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let library = home.appendingPathComponent("Library", isDirectory: true)
         var results = [
             StorageLocation(id: "/Applications", title: "应用程序", detail: "/Applications", symbol: "square.grid.2x2", path: "/Applications", bytes: 0)
         ]
+        var isComplete = true
 
         let homeNames: [String: (String, String)] = [
             "Downloads": ("下载", "下载的安装包、视频与其他文件"),
@@ -284,7 +380,9 @@ final class StorageManager: ObservableObject {
             "Music": ("音乐", "音乐与音频资料库"),
             "Applications": ("个人应用程序", "用户目录中的应用")
         ]
-        for url in directoryChildren(of: home) where url.lastPathComponent != "Library" && url.lastPathComponent != ".Trash" {
+        let homeChildren = directoryChildren(of: home)
+        isComplete = isComplete && homeChildren.isComplete
+        for url in homeChildren.urls where url.lastPathComponent != "Library" && url.lastPathComponent != ".Trash" {
             let localized = homeNames[url.lastPathComponent]
             results.append(StorageLocation(
                 id: url.path,
@@ -303,7 +401,9 @@ final class StorageManager: ObservableObject {
             ("Developer", "开发工具数据")
         ]
         let expandedNames = Set(expandedLibraryFolders.map(\.0))
-        for url in directoryChildren(of: library) where !expandedNames.contains(url.lastPathComponent) {
+        let libraryChildren = directoryChildren(of: library)
+        isComplete = isComplete && libraryChildren.isComplete
+        for url in libraryChildren.urls where !expandedNames.contains(url.lastPathComponent) {
             results.append(StorageLocation(
                 id: url.path,
                 title: libraryTitle(for: url.lastPathComponent),
@@ -316,7 +416,9 @@ final class StorageManager: ObservableObject {
 
         for (folder, groupTitle) in expandedLibraryFolders {
             let root = library.appendingPathComponent(folder, isDirectory: true)
-            for url in directoryChildren(of: root) {
+            let children = directoryChildren(of: root)
+            isComplete = isComplete && children.isComplete
+            for url in children.urls {
                 results.append(StorageLocation(
                     id: url.path,
                     title: url.lastPathComponent,
@@ -327,18 +429,51 @@ final class StorageManager: ObservableObject {
                 ))
             }
         }
-        return results
+        return (results, isComplete)
     }
 
-    private nonisolated static func directoryChildren(of root: URL) -> [URL] {
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: []
-        ) else { return [] }
-        return urls.filter { url in
-            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return false }
-            return values.isDirectory == true && values.isSymbolicLink != true
+    private nonisolated static func directoryChildren(of root: URL) -> DirectoryChildrenResult {
+        switch pathExistence(atPath: root.path) {
+        case .missing:
+            return DirectoryChildrenResult()
+        case .inaccessible:
+            return DirectoryChildrenResult(isComplete: false)
+        case .exists:
+            break
+        }
+        let urls: [URL]
+        do {
+            urls = try FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: []
+            )
+        } catch {
+            return DirectoryChildrenResult(isComplete: false)
+        }
+
+        var result = DirectoryChildrenResult()
+        for url in urls {
+            do {
+                let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                if values.isDirectory == true, values.isSymbolicLink != true {
+                    result.urls.append(url)
+                }
+            } catch {
+                result.isComplete = false
+            }
+        }
+        return result
+    }
+
+    private nonisolated static func pathExistence(atPath path: String) -> PathExistence {
+        var info = stat()
+        guard lstat(path, &info) != 0 else { return .exists }
+        switch errno {
+        case ENOENT, ENOTDIR:
+            return .missing
+        default:
+            return .inaccessible
         }
     }
 
@@ -368,15 +503,29 @@ final class StorageManager: ObservableObject {
         return "folder.fill"
     }
 
-    private nonisolated static func storageUsageInventory() -> [StorageLocation] {
-        var definitions = storageLocationDefinitions().filter {
-            FileManager.default.fileExists(atPath: $0.path)
+    private nonisolated static func storageUsageInventory() -> (
+        locations: [StorageLocation],
+        isComplete: Bool
+    ) {
+        let definitionResult = storageLocationDefinitions()
+        var discoveryComplete = definitionResult.isComplete
+        var definitions: [StorageLocation] = []
+        for definition in definitionResult.locations {
+            switch pathExistence(atPath: definition.path) {
+            case .exists:
+                definitions.append(definition)
+            case .missing:
+                continue
+            case .inaccessible:
+                discoveryComplete = false
+            }
         }
-        let sizes = directorySizes(atPaths: definitions.map(\.path))
+        let sizeResult = directorySizes(atPaths: definitions.map(\.path))
+        let allPathsMeasured = definitions.allSatisfy { sizeResult.sizes[$0.path] != nil }
         for index in definitions.indices {
-            definitions[index].bytes = sizes[definitions[index].path] ?? 0
+            definitions[index].bytes = sizeResult.sizes[definitions[index].path] ?? 0
         }
-        return definitions
+        let locations = definitions
             .filter { $0.bytes > 0 }
             .sorted {
                 if $0.bytes != $1.bytes { return $0.bytes > $1.bytes }
@@ -384,41 +533,95 @@ final class StorageManager: ObservableObject {
             }
             .prefix(250)
             .map { $0 }
+        return (
+            locations,
+            discoveryComplete && sizeResult.isComplete && allPathsMeasured
+        )
     }
 
-    private nonisolated static func directorySizes(atPaths paths: [String]) -> [String: UInt64] {
-        guard !paths.isEmpty else { return [:] }
-        guard let command = CommandRunner.run(
-            "/usr/bin/du",
-            arguments: ["-sk"] + paths,
-            timeout: 120
-        ) else { return [:] }
-        let output = command.outputString
-        var result: [String: UInt64] = [:]
-        for line in output.split(separator: "\n") {
-            let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: true)
-            guard fields.count == 2, let blocks = UInt64(fields[0]) else { continue }
-            result[String(fields[1])] = blocks * 1024
+    private nonisolated static func directorySizes(
+        atPaths paths: [String],
+        timeout: TimeInterval = 120
+    ) -> DirectorySizeScanResult {
+        var seen = Set<String>()
+        let uniquePaths = paths.filter { seen.insert($0).inserted }
+        guard !uniquePaths.isEmpty else { return DirectorySizeScanResult() }
+
+        let deadline = ProcessInfo.processInfo.systemUptime + max(0.1, timeout)
+        let accumulator = DirectorySizeScanAccumulator(paths: uniquePaths)
+        let workerCount = min(8, uniquePaths.count)
+        DispatchQueue.concurrentPerform(iterations: workerCount) { _ in
+            while let path = accumulator.nextPath(before: deadline) {
+                let remaining = deadline - ProcessInfo.processInfo.systemUptime
+                guard remaining > 0 else {
+                    accumulator.markIncomplete()
+                    break
+                }
+                guard let command = CommandRunner.run(
+                    "/usr/bin/du",
+                    arguments: ["-sk", path],
+                    timeout: remaining
+                ) else {
+                    accumulator.record(path: path, bytes: nil, isComplete: false)
+                    continue
+                }
+
+                let firstLine = command.outputString.split(
+                    separator: "\n",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: true
+                ).first
+                let blocks = firstLine?
+                    .split(whereSeparator: { $0 == "\t" || $0 == " " })
+                    .first
+                    .flatMap { UInt64($0) }
+                accumulator.record(
+                    path: path,
+                    bytes: blocks.map { $0 * 1024 },
+                    isComplete: !command.timedOut && command.terminationStatus == 0
+                )
+                if command.timedOut {
+                    break
+                }
+            }
         }
-        return result
+        return accumulator.result
     }
 
-    private nonisolated static func largeFileInventory() -> [LargeFileItem] {
+    private nonisolated static func largeFileInventory() -> (
+        files: [LargeFileItem],
+        isComplete: Bool
+    ) {
         let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
         guard let command = CommandRunner.run(
             "/usr/bin/mdfind",
-            arguments: ["-onlyin", home.path, "kMDItemFSSize >= 524288000"],
+            arguments: [
+                "-onlyin",
+                home.path,
+                "(kMDItemPhysicalSize >= 524288000) || (kMDItemFSSize >= 524288000)"
+            ],
             timeout: 20
-        ) else { return [] }
-        let output = command.outputString
+        ) else { return ([], false) }
+
         var seen = Set<String>()
         var files: [LargeFileItem] = []
-        for line in output.split(separator: "\n") {
+        var metadataComplete = true
+        for line in command.outputString.split(separator: "\n") {
             let url = URL(fileURLWithPath: String(line)).standardizedFileURL
-            guard url.path.hasPrefix(home.path + "/"), seen.insert(url.path).inserted,
-                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .totalFileAllocatedSizeKey]),
-                  values.isRegularFile == true else { continue }
-            let byteCount = max(values.totalFileAllocatedSize ?? 0, values.fileSize ?? 0)
+            guard url.path.hasPrefix(home.path + "/"), seen.insert(url.path).inserted else { continue }
+            let values: URLResourceValues
+            do {
+                values = try url.resourceValues(forKeys: [
+                    .isRegularFileKey,
+                    .fileSizeKey,
+                    .totalFileAllocatedSizeKey
+                ])
+            } catch {
+                metadataComplete = false
+                continue
+            }
+            guard values.isRegularFile == true else { continue }
+            let byteCount = values.totalFileAllocatedSize ?? values.fileSize ?? 0
             guard byteCount >= 524_288_000 else { continue }
             files.append(LargeFileItem(
                 id: url.path,
@@ -427,88 +630,142 @@ final class StorageManager: ObservableObject {
                 bytes: UInt64(byteCount)
             ))
         }
-        return files.sorted { $0.bytes > $1.bytes }.prefix(20).map { $0 }
+        let sortedFiles = files.sorted { $0.bytes > $1.bytes }.prefix(20).map { $0 }
+        return (
+            sortedFiles,
+            metadataComplete && !command.timedOut && command.terminationStatus == 0
+        )
     }
 
-    private nonisolated static func directoryStats(atPath path: String) -> (bytes: UInt64, items: Int) {
-        let root = URL(fileURLWithPath: path, isDirectory: true)
-        guard FileManager.default.fileExists(atPath: root.path) else { return (0, 0) }
-        guard let command = CommandRunner.run(
-            "/usr/bin/du",
-            arguments: ["-sk", root.path],
-            timeout: 60
-        ) else { return (0, 0) }
-        let output = command.outputString
-        let blocks = UInt64(output.split(whereSeparator: { $0 == " " || $0 == "\t" }).first ?? "0") ?? 0
-        var bytes = blocks * 1024
+    private nonisolated static func directoryStats(atPath path: String) -> (
+        bytes: UInt64,
+        items: Int,
+        isComplete: Bool
+    ) {
+        let root = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        switch pathExistence(atPath: root.path) {
+        case .missing:
+            return (0, 0, true)
+        case .inaccessible:
+            return (0, 0, false)
+        case .exists:
+            break
+        }
+
+        let sizeResult = directorySizes(atPaths: [root.path], timeout: 60)
+        var bytes = sizeResult.sizes[root.path] ?? 0
+        var isComplete = sizeResult.isComplete && sizeResult.sizes[root.path] != nil
         if path.hasSuffix("/Library/Caches") {
             let protectedCache = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(
                     "Library/Caches/\(Bundle.main.bundleIdentifier ?? "io.github.svsvnm.MacResourceMonitor")"
                 )
-            if protectedCache.standardizedFileURL.path != root.standardizedFileURL.path {
-                let protectedBytes = directoryStats(atPath: protectedCache.path).bytes
-                bytes = bytes >= protectedBytes ? bytes - protectedBytes : 0
+                .standardizedFileURL
+            if protectedCache.path != root.path {
+                let protectedStats = directoryStats(atPath: protectedCache.path)
+                bytes = bytes >= protectedStats.bytes ? bytes - protectedStats.bytes : 0
+                isComplete = isComplete && protectedStats.isComplete
             }
         }
-        let children = (try? FileManager.default.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ))?.count ?? 1
-        return (bytes, children)
+        let children: Int
+        do {
+            children = try FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ).count
+        } catch {
+            children = 0
+            isComplete = false
+        }
+        return (bytes, children, isComplete)
     }
 
-    private nonisolated static func cleanContents(of category: CleanupCategory) -> (removedBytes: UInt64, failures: Int) {
+    private nonisolated static func cleanContents(of category: CleanupCategory) -> (
+        removedBytes: UInt64,
+        failures: Int,
+        measurementComplete: Bool
+    ) {
         let root = URL(fileURLWithPath: category.path, isDirectory: true).standardizedFileURL
         let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
         let allowedRoots = cleanupDefinitions().map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
         guard root.path.hasPrefix(home + "/"), allowedRoots.contains(root.path) else {
-            return (0, 1)
+            return (0, 1, false)
         }
         guard let children = try? FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: nil,
             options: []
-        ) else { return (0, 1) }
+        ) else { return (0, 1, false) }
 
         let protectedCache = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(
                 "Library/Caches/\(Bundle.main.bundleIdentifier ?? "io.github.svsvnm.MacResourceMonitor")"
             )
             .standardizedFileURL.path
+        let targets = children.filter { $0.standardizedFileURL.path != protectedCache }
+        let sizeResult = directorySizes(atPaths: targets.map(\.path), timeout: 60)
         var removedBytes: UInt64 = 0
         var failures = 0
-        for child in children {
-            if child.standardizedFileURL.path == protectedCache { continue }
-            let stats = directoryStats(atPath: child.path)
+        var measurementComplete = sizeResult.isComplete
+
+        for child in targets {
             do {
                 try FileManager.default.removeItem(at: child)
-                removedBytes += stats.bytes
+                if let bytes = sizeResult.sizes[child.path] {
+                    removedBytes += bytes
+                } else {
+                    measurementComplete = false
+                }
             } catch {
                 failures += 1
+                measurementComplete = false
             }
         }
-        return (removedBytes, failures)
+        return (removedBytes, failures, measurementComplete)
     }
 
-    private nonisolated static func applicationInventory() -> [InstalledApplication] {
+    private nonisolated static func applicationInventory() -> (
+        applications: [InstalledApplication],
+        isComplete: Bool
+    ) {
         let roots = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
         ]
         let currentBundleIdentifier = Bundle.main.bundleIdentifier
         var seen = Set<String>()
-        var applications: [InstalledApplication] = []
+        var candidates: [InstalledApplication] = []
+        var discoveryComplete = true
 
         for root in roots {
-            guard let urls = try? FileManager.default.contentsOfDirectory(
-                at: root,
-                includingPropertiesForKeys: [.isApplicationKey, .isDirectoryKey, .isSymbolicLinkKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
+            switch pathExistence(atPath: root.path) {
+            case .missing:
+                continue
+            case .inaccessible:
+                discoveryComplete = false
+                continue
+            case .exists:
+                break
+            }
+            let urls: [URL]
+            do {
+                urls = try FileManager.default.contentsOfDirectory(
+                    at: root,
+                    includingPropertiesForKeys: [.isApplicationKey, .isDirectoryKey, .isSymbolicLinkKey],
+                    options: [.skipsHiddenFiles]
+                )
+            } catch {
+                discoveryComplete = false
+                continue
+            }
             for url in urls where url.pathExtension.lowercased() == "app" {
-                if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                do {
+                    if try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
+                        continue
+                    }
+                } catch {
+                    discoveryComplete = false
                     continue
                 }
                 let canonical = url.standardizedFileURL.path
@@ -521,22 +778,39 @@ final class StorageManager: ObservableObject {
                     ?? url.deletingPathExtension().lastPathComponent
                 let version = (bundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
                     ?? "--"
-                let size = directoryStats(atPath: url.path).bytes
-                applications.append(InstalledApplication(
+                candidates.append(InstalledApplication(
                     id: canonical,
                     name: name,
                     version: version,
                     bundleIdentifier: identifier,
                     path: canonical,
-                    bytes: size,
+                    bytes: 0,
                     needsAdministrator: !FileManager.default.isWritableFile(atPath: canonical)
                 ))
             }
         }
-        return applications.sorted {
+
+        let sizeResult = directorySizes(atPaths: candidates.map(\.path))
+        let allPathsMeasured = candidates.allSatisfy { sizeResult.sizes[$0.path] != nil }
+        let applications = candidates.map { application in
+            InstalledApplication(
+                id: application.id,
+                name: application.name,
+                version: application.version,
+                bundleIdentifier: application.bundleIdentifier,
+                path: application.path,
+                bytes: sizeResult.sizes[application.path] ?? 0,
+                needsAdministrator: application.needsAdministrator
+            )
+        }
+        .sorted {
             if $0.bytes != $1.bytes { return $0.bytes > $1.bytes }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
+        return (
+            applications,
+            discoveryComplete && sizeResult.isComplete && allPathsMeasured
+        )
     }
 
     private nonisolated static func verifiedResidueURLs(for application: InstalledApplication) -> [URL] {
@@ -635,6 +909,13 @@ struct StorageCleanupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let message = model.storageScanMessage {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 3)
+            }
+
             if selectedPage == .overview {
                 storageHome
             } else {
@@ -702,7 +983,7 @@ struct StorageCleanupView: View {
                 navigationCard(
                     page: .largeFiles,
                     title: "大文件",
-                    subtitle: "定位 500 MB 以上的文件",
+                    subtitle: "定位实际占用 500 MB 以上的文件",
                     value: largeFilesSummary,
                     detail: model.isScanningStorageUsage ? "正在查询 Spotlight" : "\(model.largeFiles.count) 个索引结果",
                     symbol: "doc.text.magnifyingglass",
@@ -859,7 +1140,7 @@ struct StorageCleanupView: View {
         switch selectedPage {
         case .overview: return "存储工具总览"
         case .usage: return "按实际大小查看主要目录和分类"
-        case .largeFiles: return "使用 Spotlight 定位 500 MB 以上文件"
+        case .largeFiles: return "使用 Spotlight 定位实际磁盘占用 500 MB 以上文件"
         case .cleanup: return "仅处理明确且可重新生成的用户数据"
         }
     }
@@ -913,7 +1194,7 @@ struct StorageCleanupView: View {
     private var largeFilesPage: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Spotlight 索引结果", systemImage: "magnifyingglass")
+                Label("Spotlight 索引 · 按实际占用筛选", systemImage: "magnifyingglass")
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
                 Text("最多显示 20 项")
@@ -922,7 +1203,7 @@ struct StorageCleanupView: View {
             }
 
             if model.largeFiles.isEmpty {
-                Text(model.isScanningStorageUsage ? "正在查找大文件…" : "未发现已被索引的 500 MB 以上文件")
+                Text(model.isScanningStorageUsage ? "正在查找大文件…" : "未发现实际磁盘占用 500 MB 以上的索引文件")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 220)
@@ -935,7 +1216,7 @@ struct StorageCleanupView: View {
                 }
             }
 
-            Text("大文件仅用于定位，不会进入一键清理范围。")
+            Text("按实际已分配空间显示；大文件仅用于定位，不会进入一键清理范围。")
                 .font(.system(size: 9))
                 .foregroundStyle(.tertiary)
         }
@@ -954,15 +1235,29 @@ struct StorageCleanupView: View {
                 }
             }
 
-            HStack {
-                if let message = model.cleanupMessage {
-                    Label(message, systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.green)
-                } else {
-                    Text("不会扫描或删除文档、照片、下载内容和其他个人文件。")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let error = model.cleanupErrorText {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.orange)
+                    } else if let message = model.cleanupMessage {
+                        Label(message, systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.green)
+                    }
+                    if let warning = model.cleanupScanMessage {
+                        Label(warning, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.orange)
+                    }
+                    if model.cleanupErrorText == nil,
+                       model.cleanupMessage == nil,
+                       model.cleanupScanMessage == nil {
+                        Text("不会扫描或删除文档、照片、下载内容和其他个人文件。")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 Spacer()
                 Text("已选择 \(storageFormatBytes(model.selectedCleanupBytes))")
@@ -974,7 +1269,7 @@ struct StorageCleanupView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .tint(.red)
-                .disabled(model.isCleaning || model.selectedCleanupBytes == 0)
+                .disabled(model.isCleaning || model.isScanningCleanup || model.selectedCleanupBytes == 0)
             }
         }
     }
@@ -1116,6 +1411,13 @@ struct AppUninstallerView: View {
                     .padding(.vertical, 8)
                     .frame(width: 250)
                     .glassEffect(.regular, in: Capsule())
+            }
+
+            if let warning = model.applicationScanMessage {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 2)
             }
 
             if let message = model.uninstallMessage {
