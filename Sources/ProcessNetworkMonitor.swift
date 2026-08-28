@@ -30,6 +30,7 @@ struct ProcessTrafficDisplayState {
 private struct ProcessTrafficSnapshot {
     let pid: Int32
     let name: String
+    let processStartedAt: UInt64?
     let downloadedBytes: UInt64
     let uploadedBytes: UInt64
 }
@@ -95,6 +96,7 @@ private enum ProcessTrafficCollector {
             rows.append(ProcessTrafficSnapshot(
                 pid: identity.pid,
                 name: resolvedProcessName(pid: identity.pid, fallback: identity.name),
+                processStartedAt: processStartIdentifier(pid: identity.pid),
                 downloadedBytes: downloaded,
                 uploadedBytes: uploaded
             ))
@@ -116,6 +118,14 @@ private enum ProcessTrafficCollector {
         guard length > 0 else { return fallback }
         let name = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? fallback : name
+    }
+
+    private static func processStartIdentifier(pid: Int32) -> UInt64? {
+        var info = proc_bsdinfo()
+        let expectedSize = Int32(MemoryLayout<proc_bsdinfo>.stride)
+        let actualSize = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, expectedSize)
+        guard actualSize == expectedSize else { return nil }
+        return info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
     }
 
     private static func parseCSVLine(_ line: String) -> [String] {
@@ -164,6 +174,7 @@ final class ProcessNetworkMonitor: ObservableObject {
 
     private struct SessionEntry {
         var name: String
+        var processStartedAt: UInt64?
         var downloadedBytes: UInt64
         var uploadedBytes: UInt64
         var lastSeen: Date
@@ -171,12 +182,15 @@ final class ProcessNetworkMonitor: ObservableObject {
 
     private struct CumulativeCounter {
         var name: String
+        var processStartedAt: UInt64?
         var downloadedBytes: UInt64
         var uploadedBytes: UInt64
     }
 
     private let queue = DispatchQueue(label: "local.mac-resource-monitor.process-network", qos: .utility)
     private var sessionEntries: [Int32: SessionEntry] = [:]
+    private var retiredSessionDownloadedBytes: UInt64 = 0
+    private var retiredSessionUploadedBytes: UInt64 = 0
     private var previousCounters: [Int32: CumulativeCounter] = [:]
     private var previousSnapshotAt: Date?
     private var activeConsumers: Set<ProcessTrafficConsumer> = []
@@ -213,21 +227,27 @@ final class ProcessNetworkMonitor: ObservableObject {
     }
 
     func resetSessionTotals() {
+        collectionGeneration &+= 1
         sessionEntries.removeAll()
+        retiredSessionDownloadedBytes = 0
+        retiredSessionUploadedBytes = 0
+        previousCounters.removeAll()
+        previousSnapshotAt = nil
+
         var next = displayState
+        next.rows = []
+        next.downloadBytesPerSecond = 0
+        next.uploadBytesPerSecond = 0
         next.sessionDownloadedBytes = 0
         next.sessionUploadedBytes = 0
-        next.rows = next.rows.map {
-            ProcessTrafficRow(
-                pid: $0.pid,
-                name: $0.name,
-                downloadBytesPerSecond: $0.downloadBytesPerSecond,
-                uploadBytesPerSecond: $0.uploadBytesPerSecond,
-                sessionDownloadedBytes: 0,
-                sessionUploadedBytes: 0
-            )
-        }
+        next.lastUpdatedAt = nil
+        next.errorText = nil
+        next.isCollecting = !activeConsumers.isEmpty
         displayState = next
+
+        if !activeConsumers.isEmpty {
+            scheduleCollection()
+        }
     }
 
     private func scheduleCollection() {
@@ -242,8 +262,9 @@ final class ProcessNetworkMonitor: ObservableObject {
                 self.collectionScheduled = false
 
                 guard generation == self.collectionGeneration else {
-                    self.setCollecting(false)
-                    if !self.activeConsumers.isEmpty {
+                    let shouldContinue = !self.activeConsumers.isEmpty
+                    self.setCollecting(shouldContinue)
+                    if shouldContinue {
                         self.scheduleCollection()
                     }
                     return
@@ -294,10 +315,56 @@ final class ProcessNetworkMonitor: ObservableObject {
         displayState = next
     }
 
+    private static func isSameProcess(
+        _ previous: CumulativeCounter?,
+        _ current: CumulativeCounter
+    ) -> Bool {
+        matchesProcess(
+            previousName: previous?.name,
+            previousStart: previous?.processStartedAt,
+            current: current
+        )
+    }
+
+    private static func isSameProcess(
+        _ previous: SessionEntry?,
+        _ current: CumulativeCounter
+    ) -> Bool {
+        matchesProcess(
+            previousName: previous?.name,
+            previousStart: previous?.processStartedAt,
+            current: current
+        )
+    }
+
+    private static func matchesProcess(
+        previousName: String?,
+        previousStart: UInt64?,
+        current: CumulativeCounter
+    ) -> Bool {
+        guard let previousName else { return false }
+        if let previousStart, let currentStart = current.processStartedAt {
+            return previousStart == currentStart
+        }
+        return previousName == current.name
+    }
+
     private func apply(_ result: ProcessTrafficCollectionResult) {
         switch result {
         case let .failure(message):
             var next = displayState
+            next.rows = next.rows.map { row in
+                ProcessTrafficRow(
+                    pid: row.pid,
+                    name: row.name,
+                    downloadBytesPerSecond: 0,
+                    uploadBytesPerSecond: 0,
+                    sessionDownloadedBytes: row.sessionDownloadedBytes,
+                    sessionUploadedBytes: row.sessionUploadedBytes
+                )
+            }
+            next.downloadBytesPerSecond = 0
+            next.uploadBytesPerSecond = 0
             next.errorText = message
             next.isCollecting = false
             displayState = next
@@ -310,6 +377,7 @@ final class ProcessNetworkMonitor: ObservableObject {
                         snapshot.pid,
                         CumulativeCounter(
                             name: snapshot.name,
+                            processStartedAt: snapshot.processStartedAt,
                             downloadedBytes: snapshot.downloadedBytes,
                             uploadedBytes: snapshot.uploadedBytes
                         )
@@ -323,7 +391,7 @@ final class ProcessNetworkMonitor: ObservableObject {
                 self.previousSnapshotAt = now
                 var next = displayState
                 next.errorText = nil
-                next.isCollecting = false
+                next.isCollecting = true
                 displayState = next
                 return
             }
@@ -334,7 +402,7 @@ final class ProcessNetworkMonitor: ObservableObject {
 
             for (pid, counter) in currentCounters {
                 let previous = previousCounters[pid]
-                let isSameProcess = previous?.name == counter.name
+                let isSameProcess = Self.isSameProcess(previous, counter)
                 let downloadedDelta = isSameProcess
                     ? counter.downloadedBytes.subtractingWithoutUnderflow(previous?.downloadedBytes ?? counter.downloadedBytes)
                     : 0
@@ -342,10 +410,16 @@ final class ProcessNetworkMonitor: ObservableObject {
                     ? counter.uploadedBytes.subtractingWithoutUnderflow(previous?.uploadedBytes ?? counter.uploadedBytes)
                     : 0
                 let current = sessionEntries[pid]
+                let continuesSession = Self.isSameProcess(current, counter)
+                if let current, !continuesSession {
+                    retiredSessionDownloadedBytes += current.downloadedBytes
+                    retiredSessionUploadedBytes += current.uploadedBytes
+                }
                 sessionEntries[pid] = SessionEntry(
                     name: counter.name,
-                    downloadedBytes: (current?.downloadedBytes ?? 0) + downloadedDelta,
-                    uploadedBytes: (current?.uploadedBytes ?? 0) + uploadedDelta,
+                    processStartedAt: counter.processStartedAt,
+                    downloadedBytes: (continuesSession ? current?.downloadedBytes ?? 0 : 0) + downloadedDelta,
+                    uploadedBytes: (continuesSession ? current?.uploadedBytes ?? 0 : 0) + uploadedDelta,
                     lastSeen: now
                 )
                 liveRates[pid] = (
@@ -357,6 +431,13 @@ final class ProcessNetworkMonitor: ObservableObject {
             previousCounters = currentCounters
             self.previousSnapshotAt = now
 
+            let expiredEntries = sessionEntries.filter { pid, entry in
+                !activePIDs.contains(pid) && now.timeIntervalSince(entry.lastSeen) >= 120
+            }
+            for entry in expiredEntries.values {
+                retiredSessionDownloadedBytes += entry.downloadedBytes
+                retiredSessionUploadedBytes += entry.uploadedBytes
+            }
             sessionEntries = sessionEntries.filter { pid, entry in
                 activePIDs.contains(pid) || now.timeIntervalSince(entry.lastSeen) < 120
             }
@@ -384,8 +465,10 @@ final class ProcessNetworkMonitor: ObservableObject {
             next.rows = Array(nextRows)
             next.downloadBytesPerSecond = liveRates.values.reduce(0) { $0 + $1.download }
             next.uploadBytesPerSecond = liveRates.values.reduce(0) { $0 + $1.upload }
-            next.sessionDownloadedBytes = sessionEntries.values.reduce(0) { $0 + $1.downloadedBytes }
-            next.sessionUploadedBytes = sessionEntries.values.reduce(0) { $0 + $1.uploadedBytes }
+            next.sessionDownloadedBytes = retiredSessionDownloadedBytes
+                + sessionEntries.values.reduce(0) { $0 + $1.downloadedBytes }
+            next.sessionUploadedBytes = retiredSessionUploadedBytes
+                + sessionEntries.values.reduce(0) { $0 + $1.uploadedBytes }
             next.lastUpdatedAt = now
             next.errorText = nil
             next.isCollecting = false
@@ -439,21 +522,21 @@ struct ProcessTrafficView: View {
                     value: processTrafficRate(model.downloadBytesPerSecond),
                     detail: "所有进程合计",
                     symbol: "arrow.down",
-                    color: .green
+                    color: InterfacePalette.download
                 )
                 summaryCard(
                     title: "当前上传",
                     value: processTrafficRate(model.uploadBytesPerSecond),
                     detail: "所有进程合计",
                     symbol: "arrow.up",
-                    color: .blue
+                    color: InterfacePalette.upload
                 )
                 summaryCard(
                     title: "本次监控累计",
                     value: processTrafficBytes(model.sessionDownloadedBytes + model.sessionUploadedBytes),
                     detail: "↓ \(processTrafficBytes(model.sessionDownloadedBytes)) · ↑ \(processTrafficBytes(model.sessionUploadedBytes))",
                     symbol: "sum",
-                    color: .purple
+                    color: InterfacePalette.memorySeries
                 )
             }
 
@@ -547,7 +630,7 @@ struct ProcessTrafficView: View {
                         .fill(Color.primary.opacity(0.055))
                         .overlay(alignment: .leading) {
                             Capsule()
-                                .fill(Color.green.opacity(0.65))
+                                .fill(InterfacePalette.download.opacity(0.72))
                                 .frame(width: proxy.size.width * min(1, row.currentBytesPerSecond / total))
                         }
                 }
@@ -555,12 +638,18 @@ struct ProcessTrafficView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(processTrafficRate(row.downloadBytesPerSecond))
-                .foregroundStyle(.green)
-                .frame(width: 112, alignment: .trailing)
-            Text(processTrafficRate(row.uploadBytesPerSecond))
-                .foregroundStyle(.blue)
-                .frame(width: 112, alignment: .trailing)
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.down")
+                    .foregroundStyle(InterfacePalette.download)
+                Text(processTrafficRate(row.downloadBytesPerSecond))
+            }
+            .frame(width: 112, alignment: .trailing)
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up")
+                    .foregroundStyle(InterfacePalette.upload)
+                Text(processTrafficRate(row.uploadBytesPerSecond))
+            }
+            .frame(width: 112, alignment: .trailing)
             Text(processTrafficBytes(row.sessionBytes))
                 .foregroundStyle(.secondary)
                 .frame(width: 112, alignment: .trailing)
