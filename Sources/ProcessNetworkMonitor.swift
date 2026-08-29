@@ -551,7 +551,13 @@ struct ProcessTrafficView: View {
                 }
                 .padding(.horizontal, 13)
                 .frame(height: 36)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .background(
+                    Color.primary.opacity(0.045),
+                    in: RoundedRectangle(
+                        cornerRadius: InterfaceMetrics.controlRadius,
+                        style: .continuous
+                    )
+                )
 
                 Picker("排序", selection: $sort) {
                     ForEach(ProcessTrafficSort.allCases) { option in
@@ -562,7 +568,9 @@ struct ProcessTrafficView: View {
                 .frame(width: 360)
             }
             .padding(14)
-            .stableDashboardCard(cornerRadius: 18)
+            .liquidGlassPanel(
+                cornerRadius: InterfaceMetrics.panelRadius
+            )
 
             if let error = model.errorText {
                 statusCard(symbol: "exclamationmark.triangle.fill", title: "暂时无法读取进程流量", detail: error, color: .orange)
@@ -578,7 +586,7 @@ struct ProcessTrafficView: View {
                 "页面或菜单可见时只读调用 macOS nettop；不查看通信内容，不记录域名，不接管连接，并排除本机回环流量。累计值仅统计界面可见期间，手动清零后重新计算。",
                 systemImage: "lock.shield"
             )
-            .font(.system(size: 10))
+            .font(InterfaceTypography.caption)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 4)
         }
@@ -594,7 +602,7 @@ struct ProcessTrafficView: View {
                 Text("上传").frame(width: 112, alignment: .trailing)
                 Text("本次累计").frame(width: 112, alignment: .trailing)
             }
-            .font(.system(size: 10, weight: .semibold))
+            .font(InterfaceTypography.captionEmphasized)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 16)
 
@@ -609,7 +617,7 @@ struct ProcessTrafficView: View {
     private func processRow(_ row: ProcessTrafficRow, rank: Int) -> some View {
         HStack(spacing: 12) {
             Text("\(rank)")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(.tertiary)
                 .frame(width: 22, alignment: .trailing)
 
@@ -618,10 +626,10 @@ struct ProcessTrafficView: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
                     Text(row.name)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(InterfaceTypography.bodyEmphasized)
                         .lineLimit(1)
                     Text("PID \(row.pid)")
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
                 GeometryReader { proxy in
@@ -654,11 +662,11 @@ struct ProcessTrafficView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 112, alignment: .trailing)
         }
-        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .font(.system(size: 13, weight: .medium, design: .rounded))
         .monospacedDigit()
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .stableListCard(cornerRadius: 16)
+        .stableListCard(cornerRadius: InterfaceMetrics.cardRadius)
     }
 
     @ViewBuilder
@@ -669,8 +677,11 @@ struct ProcessTrafficView: View {
                 .scaledToFit()
                 .frame(width: 30, height: 30)
         } else {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(InterfacePalette.iconSurface)
+            RoundedRectangle(
+                cornerRadius: InterfaceMetrics.controlRadius,
+                style: .continuous
+            )
+            .fill(InterfacePalette.iconSurface)
                 .overlay {
                     Text(String(name.prefix(1)).uppercased())
                         .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -682,8 +693,11 @@ struct ProcessTrafficView: View {
 
     private func summaryCard(title: String, value: String, detail: String, symbol: String, color: Color) -> some View {
         HStack(spacing: 13) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(color.opacity(0.12))
+            RoundedRectangle(
+                cornerRadius: InterfaceMetrics.controlRadius,
+                style: .continuous
+            )
+            .fill(color.opacity(0.12))
                 .overlay {
                     Image(systemName: symbol)
                         .font(.system(size: 15, weight: .bold))
@@ -692,13 +706,13 @@ struct ProcessTrafficView: View {
                 .frame(width: 42, height: 42)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(InterfaceTypography.captionEmphasized)
                     .foregroundStyle(.secondary)
                 Text(value)
                     .font(.system(size: 19, weight: .bold, design: .rounded))
                     .monospacedDigit()
                 Text(detail)
-                    .font(.system(size: 9))
+                    .font(InterfaceTypography.microMetadata)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -716,13 +730,13 @@ struct ProcessTrafficView: View {
                 .foregroundStyle(color)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.system(size: 13, weight: .semibold))
-                Text(detail).font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(detail).font(InterfaceTypography.caption).foregroundStyle(.secondary)
             }
             Spacer()
             if model.isCollecting { ProgressView().controlSize(.small) }
         }
         .padding(18)
-        .stableListCard(cornerRadius: 18)
+        .stableListCard(cornerRadius: InterfaceMetrics.cardRadius)
     }
 
     private func sectionLabel(_ title: String, subtitle: String) -> some View {
@@ -730,12 +744,12 @@ struct ProcessTrafficView: View {
             Text(title)
                 .font(.system(size: 14, weight: .bold, design: .rounded))
             Text(subtitle)
-                .font(.system(size: 10))
+                .font(InterfaceTypography.caption)
                 .foregroundStyle(.secondary)
             Spacer()
             if let date = model.lastUpdatedAt {
                 Text("更新于 \(date.formatted(date: .omitted, time: .standard))")
-                    .font(.system(size: 9))
+                    .font(InterfaceTypography.microMetadata)
                     .foregroundStyle(.tertiary)
             }
         }
