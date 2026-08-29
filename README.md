@@ -1,277 +1,286 @@
+<p align="right">
+  <a href="README.zh-CN.md">简体中文</a> | English
+</p>
+
 <p align="center">
   <img src="Assets/AppIcon.png" width="112" height="112" alt="Mac Resource Monitor icon">
 </p>
 
-<h1 align="center">Mac 资源监控</h1>
+<h1 align="center">Mac Resource Monitor</h1>
 
 <p align="center">
-  一款原生、离线、菜单栏常驻的 macOS 性能与存储管理工具。
+  A native, offline macOS performance and storage management utility that lives in the menu bar.
 </p>
 
 <p align="center">
   <img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-111111?logo=apple">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0A84FF">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.5.3-7C3AED">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.5.4-7C3AED">
   <img alt="CI" src="https://github.com/svsvnm/MacResourceMonitor/actions/workflows/ci.yml/badge.svg">
 </p>
 
-Mac 资源监控将系统性能、按进程网络流量、硬件传感器、USB-C/Thunderbolt 端口、磁盘空间分析、安全清理和应用卸载整合到一个 SwiftUI 应用中。主窗口采用 macOS 26 原生 Liquid Glass，关闭窗口后应用仍会留在菜单栏继续采集轻量级系统数据；进程流量仅在菜单弹窗或流量页面可见时采样。
+Mac Resource Monitor combines system performance, per-process network traffic, hardware sensors, USB-C/Thunderbolt ports, disk space analysis, safe cleanup, and app removal in a single SwiftUI application. The main window uses the native Liquid Glass design of macOS 26. After the window is closed, the app remains in the menu bar and continues collecting lightweight system data; process traffic is sampled only while the menu popover or Traffic page is visible.
 
-> 当前版本：**2.5.3（Build 43）**。项目面向 macOS 26 和 Apple Silicon 构建，不提供旧系统兼容层。
+> Current version: **2.5.4 (Build 44)**. The project targets macOS 26 and Apple Silicon and does not include a compatibility layer for older systems.
 
-## 功能概览
+## Feature Overview
 
-| 模块 | 能力 |
+| Module | Capabilities |
 | --- | --- |
-| 系统监控 | CPU、内存、磁盘、网络、CPU 温度、风扇、充电功率、进程排行与历史曲线 |
-| 进程流量 | 按进程实时下载/上传速度、PID、应用图标、搜索、排序和本次监控累计流量 |
-| 接口监测 | USB-C、MagSafe、USB4、Thunderbolt、DisplayPort、USB-PD 和线缆 E-Marker |
-| 存储清理 | 磁盘概览、主要目录排行、500 MB 以上大文件、缓存/日志/Xcode/废纸篓清理 |
-| 应用卸载 | 第三方应用大小排行、Finder 定位、应用本体及精确 Bundle ID 残留移入废纸篓 |
+| System Monitor | CPU, memory, disk, network, CPU temperature, fans, charging power, process rankings, and historical charts |
+| Process Traffic | Real-time per-process download/upload rates, PID, app icons, search, sorting, and cumulative traffic for the current monitoring session |
+| Port Monitor | USB-C, MagSafe, USB4, Thunderbolt, DisplayPort, USB-PD, and cable E-Marker information |
+| Storage Cleanup | Disk overview, largest directories, files larger than 500 MB, and cleanup for caches, logs, Xcode data, and Trash |
+| App Uninstaller | Third-party apps ranked by size, Reveal in Finder, and moving app bundles plus remnants that exactly match their Bundle IDs to the Trash |
 
-## 2.5.3 更新
+## What's New in 2.5.4
 
-- 重构主窗口与菜单栏界面：采用紧凑遥测工作台、合并负载趋势、统一数据色彩与更清晰的信息层级，减少重复卡片和装饰性玻璃效果。
-- 为 CPU/内存历史趋势加入辅助功能采样浏览，并修复深色模式小字号数据色对比度。
-- 菜单栏仅显示当前有实时流量的进程；采样失败时清除陈旧速率并优先展示可悬停查看的错误信息。
+- Refined the typography and rebuilt the macOS 26 Liquid Glass hierarchy around restrained shell surfaces, stable telemetry panels, and clearer spacing in both the main window and menu bar.
+- Converted the sidebar into a fully inset four-corner glass card and standardized shell, panel, card, control, and compact-element corner radii across the interface.
+- Tightened the status header and 360-point menu panel, removed nested glass and oversized white surfaces, and changed app management from a stack of large cards to a compact grouped list.
 
-## 2.5.2 更新
+## What's New in 2.5.3
 
-- 扩展 Apple Silicon 温度传感器支持范围，按 M1–M5 芯片代际选择对应的 SMC 键。
-- 网络速率改用 64 位接口计数器，并在 Wi-Fi、有线网络或 VPN 导致主接口变化时重建采样基线。
-- 修复进程 PID 复用、累计流量清零与在途采样竞态，避免流量串账或旧数据回写。
-- 按窗口、菜单和页面可见性启停进程、SMC、电源及线缆等昂贵采集，降低后台 CPU 唤醒和耗电。
-- 强化扩展指标与线缆结果的新鲜度管理，旧采集不会再覆盖新请求的加载状态。
-- 存储扫描改用有界并发的独立 `du -sk` 任务，正确处理硬链接、全局超时、权限受限和部分结果。
-- 大文件按实际已分配空间统计，并扩展 Spotlight 物理大小筛选，避免稀疏文件容量高估或边界文件漏检。
+- Redesigned the main window and menu bar interface around a compact telemetry workspace, combined load trends, consistent data colors, and clearer information hierarchy, reducing duplicate cards and decorative glass effects.
+- Added accessible sample-by-sample exploration for CPU and memory history, and fixed the contrast of small data text in Dark Mode.
+- The menu bar now shows only processes with current real-time traffic; stale rates are cleared after sampling failures, and hoverable error details take priority.
 
-## 2.5.1 更新
+## What's New in 2.5.2
 
-- 修复进程流量监控造成的高 CPU 与耗电问题：不再让 `nettop` 连续运行，改为约每 2 秒读取一次累计字节快照并在应用内计算差值。
-- 进程流量仅在菜单弹窗或主面板流量页面可见时采样；两处都关闭后停止采集并清除实时速率，不统计隐藏期间流量。
-- 合并进程流量的行、速率、累计值和状态为一次发布，避免同一采样周期多次触发 SwiftUI 刷新。
-- 重构菜单栏刷新链：系统与流量数据合并为单一展示快照，菜单稳定运行时每 2 秒只提交一次整窗状态。
-- 菜单只保留一层 Liquid Glass 背景，内部指标改用稳定半透明表面，降低 WindowServer/GPU 的重复合成开销。
-- 修复快速关闭、重开流量页面时旧定时器可能继续触发的问题，并强化 `nettop` 超时与异常退出处理。
+- Expanded Apple Silicon temperature-sensor support by selecting the appropriate SMC keys for each M1–M5 chip generation.
+- Switched network rates to 64-bit interface counters and rebuilt the sampling baseline whenever the primary interface changes because of Wi-Fi, Ethernet, or VPN activity.
+- Fixed races involving process PID reuse, cumulative-traffic resets, and in-flight sampling to prevent traffic from being attributed to the wrong process or stale data from being written back.
+- Start and stop expensive process, SMC, power, and cable collection according to window, menu, and page visibility, reducing background CPU wakeups and power use.
+- Strengthened freshness handling for extended metrics and cable results so older collection tasks can no longer overwrite the loading state of newer requests.
+- Changed storage scanning to bounded-concurrency, independent `du -sk` tasks with correct handling for hard links, global timeouts, restricted permissions, and partial results.
+- Large files are now measured by actual allocated space, with broader Spotlight filtering for physical size to avoid overestimating sparse files or missing files at the size boundary.
 
-## 2.5.0 更新
+## What's New in 2.5.1
 
-- 新增独立“进程流量”面板，按进程显示实时下载、上传、PID 和本次监控累计流量。
-- 使用 macOS 内置 `nettop` 对外部网络接口进行连续只读采样，不需要管理员权限或 Network Extension。
-- 支持进程名/PID 搜索，并可按当前流速、下载、上传或累计流量排序。
-- 自动解析完整进程名并展示正在运行应用的图标；进程结束后短暂保留本次累计记录。
-- 排除本机回环流量，不查看通信内容、不记录域名，也不接管或修改网络连接。
-- 菜单栏弹窗改用明亮的原生 Liquid Glass 采样，移除覆盖整面的深黑遮罩。
-- 菜单栏弹窗加入实时进程流量 Top 5，共享主面板采样结果，不重复启动采集器。
+- Fixed high CPU usage and power consumption from process traffic monitoring: `nettop` no longer runs continuously and is instead queried about every 2 seconds for cumulative-byte snapshots, with deltas calculated inside the app.
+- Process traffic is sampled only while the menu popover or the Traffic page in the main panel is visible. When both are closed, collection stops and live rates are cleared; traffic while hidden is not counted.
+- Combined process traffic rows, rates, cumulative values, and status into a single publication to avoid triggering multiple SwiftUI refreshes during one sampling cycle.
+- Refactored the menu bar refresh pipeline so system and traffic data share one display snapshot, submitting the full menu state only once every 2 seconds during steady operation.
+- Kept a single Liquid Glass background for the menu and changed its internal metrics to stable translucent surfaces, reducing repeated WindowServer/GPU compositing work.
+- Fixed an issue where an old timer could continue firing after the Traffic page was closed and reopened quickly, and strengthened handling for `nettop` timeouts and abnormal exits.
 
-## 2.4.1 更新
+## What's New in 2.5.0
 
-- 窗口透明属性改为每个 `NSWindow` 仅配置一次，避免实时数据刷新反复重置底层 surface，导致前台透明玻璃窗口闪烁。
-- 性能趋势卡片改用与主页指标卡一致的中性表面，同时保留实体渲染和无动画刷新以避免白条。
-- 系统监控圆环明确显示 CPU/内存较高值对应的“系统负载”；应用卸载页移除无实际比例含义的圆环。
-- 主内容区移除额外顶部偏移，使顶部概览卡与左侧边栏外框严格对齐。
-- 主窗口与菜单栏统一使用中性石墨玻璃卡片，移除按指标和页面主题大面积染色的背景。
-- 导航与主要操作统一采用低饱和钢蓝灰，状态色仅保留在图标、进度条和曲线中。
-- 回退实验性的 AppKit HUD/Popover `behindWindow` Vibrancy，恢复更稳定的 SwiftUI 超薄材质和深色遮罩方案。
-- 保留暂停功能移除、历史曲线单次无动画刷新、固定高度和实体背景，避免同步刷新白条。
-- 保留空间占用、大文件、安全清理和应用卸载列表的稳定实体卡片，避免长列表滚动时出现透明黑块。
+- Added a dedicated Process Traffic panel showing real-time download and upload rates, PID, and cumulative traffic for the current monitoring session by process.
+- Uses the built-in macOS `nettop` utility for continuous, read-only sampling of external network interfaces without administrator privileges or a Network Extension.
+- Supports searching by process name or PID and sorting by current transfer rate, download, upload, or cumulative traffic.
+- Automatically resolves full process names and displays icons for running apps; cumulative records are retained briefly after a process exits.
+- Excludes local loopback traffic, does not inspect communication contents or record domain names, and does not take over or modify network connections.
+- Updated the menu bar popover to use bright, native Liquid Glass sampling and removed the full-surface dark overlay.
+- Added the top three processes by real-time traffic to the menu bar popover, sharing results with the main panel rather than starting a second collector.
 
-## 2.3.10 更新
+## What's New in 2.4.1
 
-- 移除主界面和菜单栏中重复且容易造成陈旧数据误判的暂停按钮，监控保持持续运行。
-- 将同一采集周期内的历史数据合并为固定长度、无动画更新，避免曲线在一次刷新中重复重绘。
-- CPU 与内存历史曲线使用固定高度、裁剪边界和稳定实体卡片，修复每 2 秒刷新时 Liquid Glass 重新采样造成的瞬时白条。
+- Window transparency is now configured only once per `NSWindow`, preventing real-time data refreshes from repeatedly resetting the underlying surface and causing the foreground translucent glass window to flicker.
+- Performance trend cards now use the same neutral surfaces as the home-page metric cards while retaining solid rendering and nonanimated refreshes to prevent white flashes.
+- The System Monitor ring now clearly labels the higher of the CPU and memory values as “System Load”; the ring with no meaningful proportional value was removed from the App Uninstaller page.
+- Removed the extra top offset from the main content area so the top overview card aligns precisely with the sidebar frame.
+- Standardized the main window and menu bar on neutral graphite glass cards, removing large metric- and page-themed color washes from backgrounds.
+- Standardized navigation and primary actions on a low-saturation steel blue-gray, reserving status colors for icons, progress bars, and charts.
+- Reverted the experimental AppKit HUD/Popover `behindWindow` Vibrancy approach and restored the more stable SwiftUI ultra-thin material with dark overlays.
+- Retained the removal of pause controls, single nonanimated history-chart refreshes, fixed heights, and solid backgrounds to prevent white flashes during synchronized updates.
+- Retained stable solid cards for disk usage, large-file, safe-cleanup, and app-uninstaller lists to prevent translucent black artifacts while scrolling long lists.
 
-## 2.3.9 更新
+## What's New in 2.3.10
 
-- 空间占用、大文件和安全清理列表统一采用应用卸载区的独立圆角卡片设计语言。
-- 三类管理列表统一图标容器、标题层级、容量列、卡片间距和 Finder 操作按钮，同时继续使用稳定实体背景避免滚动玻璃合成异常。
+- Removed duplicate pause buttons from the main interface and menu bar because they could easily lead to misreading stale data; monitoring now runs continuously.
+- Consolidated history data from each collection cycle into one fixed-length, nonanimated update to prevent charts from redrawing repeatedly during a single refresh.
+- Gave CPU and memory history charts fixed heights, clipped bounds, and stable solid cards, fixing momentary white flashes caused by Liquid Glass resampling every 2 seconds.
 
-## 2.3.8 更新
+## What's New in 2.3.9
 
-- 长滚动列表改用稳定的不透明自适应卡片，不再把整块 `LazyVStack` 交给实时玻璃合成，修复滚动后条目背景短暂变成透明黑色的问题。
-- 空间占用结果过滤 `0 KB` 空目录并最多保留前 250 项，减少无效条目和超长列表的滚动压力。
-- 外部命令统一通过带超时的隔离执行器运行，避免线缆检测、Spotlight、`du`、`ps` 或 `pmset` 异常时永久占住采集队列。
-- 卸载残留扫描增加 Bundle ID 格式校验，阻止非标准标识符参与用户目录路径拼接。
+- Standardized the Disk Usage, Large Files, and Safe Cleanup lists on the independent rounded-card design language used by the App Uninstaller.
+- Standardized icon containers, title hierarchy, size columns, card spacing, and Finder action buttons across all three management lists while retaining stable solid backgrounds to prevent glass compositing artifacts during scrolling.
 
-## 2.3.7 更新
+## What's New in 2.3.8
 
-- 菜单栏状态项移除图标，固定展示 CPU 温度以及实时网络下载、上传速度。
-- 菜单栏弹窗改为与主窗口一致的结果优先卡片布局，固定突出温度和网络，辅助展示 CPU、内存、风扇、接口与充电状态。
-- 深色模式使用深黑背景与克制的主题环境光，减少传统列表分隔线和灰色底板。
+- Long scrolling lists now use stable, opaque adaptive cards instead of handing an entire `LazyVStack` to real-time glass compositing, fixing item backgrounds that could briefly turn translucent black after scrolling.
+- Disk usage results now filter out empty `0 KB` directories and retain at most 250 items, reducing invalid entries and scrolling overhead in very long lists.
+- External commands now run through a shared isolated executor with timeouts, preventing cable detection, Spotlight, `du`, `ps`, or `pmset` failures from permanently occupying collection queues.
+- Added Bundle ID format validation to remnant scanning, preventing nonstandard identifiers from being interpolated into user-directory paths.
 
-## 2.3.6 更新
+## What's New in 2.3.7
 
-- 移除侧边栏状态卡中的“收起到菜单栏”按钮，窗口继续使用 macOS 原生关闭操作。
-- 深色模式改用不透明的深黑底色，仅保留轻微主题环境光，避免系统窗口灰色透过 Liquid Glass。
+- Removed the icon from the menu bar status item, which now always displays CPU temperature and real-time network download and upload rates.
+- Redesigned the menu bar popover with the same results-first card layout as the main window, prominently displaying temperature and network activity with secondary CPU, memory, fan, port, and charging status.
+- Dark Mode now uses a deep black background with restrained themed ambient lighting, reducing conventional list separators and gray backing panels.
 
-## 2.3.5 更新
+## What's New in 2.3.6
 
-- 磁盘总量、已用和可用空间统一使用 `volumeAvailableCapacityForImportantUsage` 语义及十进制文件容量格式，与 macOS 系统设置保持一致。
-- 移除覆盖整个滚动内容的大范围 `GlassEffectContainer`，限制玻璃合成在滚动视口内，并为底部加入柔和滚动边缘，避免离屏玻璃卡片出现黑色弧形残影。
+- Removed the “Collapse to Menu Bar” button from the sidebar status card; the window continues to use the native macOS close action.
+- Dark Mode now uses an opaque deep black background with only subtle themed ambient light, preventing the system window's gray color from showing through Liquid Glass.
 
-## 2.3.4 更新
+## What's New in 2.3.5
 
-- 侧栏分组标题只提高字体颜色和字重，不再使用条状背景。
-- 移除侧栏面板、应用图标、选中标记和在线状态点的装饰阴影，保持界面干净克制。
+- Total, used, and available disk space now consistently use `volumeAvailableCapacityForImportantUsage` semantics and decimal file-size formatting to match macOS System Settings.
+- Removed the large `GlassEffectContainer` that covered the entire scrolling content area, constrained glass compositing to the scroll viewport, and added a soft bottom scroll edge to prevent black curved afterimages from offscreen glass cards.
 
-## 2.3.3 更新
+## What's New in 2.3.4
 
-- 修复“接口监测”顶部按钮可能被常规刷新节流忽略的问题；现在会强制执行一次线缆与接口采集，并显示检测中状态及最近检测时间。
-- 存储清理和应用卸载只保留 Hero 顶部主扫描按钮，移除页面中的重复刷新入口。
-- 提高侧栏分组标题文字的对比度，使“概览”和“管理工具”的层级更加清晰。
+- Sidebar section headings now use only stronger text color and weight, without strip backgrounds.
+- Removed decorative shadows from the sidebar panel, app icon, selection indicator, and online status dot for a cleaner, more restrained interface.
 
-## 2.3.2 更新
+## What's New in 2.3.3
 
-- 所有内容卡片、状态 Hero、侧栏面板和存储任务卡统一改用原生 Clear Liquid Glass，移除 Regular Glass 产生的明显浅色高光边缘。
-- 保留按钮、进度环和图表曲线的功能性轮廓，不再为任何卡片单独绘制白色边框。
+- Fixed an issue where the top button in Port Monitor could be ignored by normal refresh throttling; it now forces one cable and port collection pass and displays an in-progress state plus the most recent detection time.
+- Storage Cleanup and App Uninstaller now retain only their primary scan buttons in the top Hero area, removing duplicate refresh actions from the pages.
+- Increased the contrast of sidebar section headings to make the hierarchy between “Overview” and “Management Tools” clearer.
 
-## 2.3.1 更新
+## What's New in 2.3.2
 
-- 将铺满窗口的直角侧栏改为独立圆角玻璃面板，消除标题栏和窗口底部的突兀接缝。
-- 移除卡片外围额外绘制的白色描边及遮挡玻璃的彩色底板，改由原生 Liquid Glass 直接采样背景。
-- 统一面板、卡片和控件的圆角尺度，并将多块高饱和光斑改为连续、低饱和的环境渐变。
-- 将旧模块名称统一更名为“接口监测”。
+- Changed all content cards, status Heroes, sidebar panels, and storage task cards to native Clear Liquid Glass, removing the prominent light-colored highlight edges produced by Regular Glass.
+- Retained functional outlines for buttons, progress rings, and chart lines, while no longer drawing a separate white border around any card.
 
-## 2.3.0 更新
+## What's New in 2.3.1
 
-- 重构全局视觉层级：每个模块使用独立状态 Hero，首先呈现结论、关键数值和唯一主操作。
-- 侧边栏改为“概览 / 管理工具”分组导航，未选项目保持轻量，当前模块使用动态强调色和状态标记。
-- 系统监控调整为完整的 4×2 指标阵列，并将实时资源、性能趋势、活动详情分区展示。
-- 存储首页由磁盘状态 Hero 和三张任务卡片组成，不再重复堆叠磁盘概览。
-- 全局卡片使用原生 Liquid Glass、环境色和轻量景深，并随模块自动切换主题色。
-- 保持数据只读边界、清理二次确认、菜单栏常驻及全部硬件遥测能力不变。
+- Replaced the full-height rectangular sidebar with an independent rounded glass panel, eliminating abrupt seams at the title bar and bottom of the window.
+- Removed extra white strokes around cards and colored backing panels that obscured the glass, allowing native Liquid Glass to sample the background directly.
+- Standardized corner radii across panels, cards, and controls, and replaced multiple high-saturation light spots with a continuous, low-saturation ambient gradient.
+- Standardized the former module name as “Port Monitor.”
 
-## 2.2.1 更新
+## What's New in 2.3.0
 
-- 将存储模块重构为固定首页和三张功能卡片，空间占用、大文件、安全清理分别进入独立二级页面。
-- 长目录列表改为懒加载，避免扫描结果增长时拖慢首页和首屏渲染。
-- 修复“大文件”入口在 macOS 26 上缺少 SF Symbol 图标的问题。
-- Bundle ID 改为公开仓库身份 `io.github.svsvnm.MacResourceMonitor`，移除本机账户名痕迹。
-- 保留关闭窗口后菜单栏常驻、实时传感器与充电功率采集等既有行为。
+- Redesigned the global visual hierarchy so every module uses its own status Hero to present conclusions, key values, and a single primary action first.
+- Reorganized sidebar navigation into “Overview” and “Management Tools”; inactive items remain lightweight, while the current module uses a dynamic accent color and status indicator.
+- Reworked System Monitor into a complete 4×2 metric grid, with separate sections for real-time resources, performance trends, and activity details.
+- Rebuilt the Storage home page around a disk-status Hero and three task cards, eliminating a duplicate disk overview.
+- Applied native Liquid Glass, ambient color, and subtle depth to cards throughout the app, with theme colors that switch automatically by module.
+- Preserved the read-only data boundary, secondary cleanup confirmation, persistent menu bar behavior, and all hardware telemetry capabilities.
 
-## 系统监控
+## What's New in 2.2.1
 
-- 每 2 秒刷新 CPU、内存和主要网络接口数据，使用 64 位接口计数器并在主接口切换时重建速率基线。
-- 显示最近约 2 分钟的 CPU 与内存趋势。
-- 根据 M1–M5 芯片代际选择 Apple SMC CPU 温度传感器，展示平均值和最高值。
-- 读取内置风扇数量与实时转速；低温停转时明确显示 `0 RPM`。
-- 仅在系统监控页面可见时读取 CPU 占用较高的进程、PID、CPU 比例和内存占用。
-- 展示电池状态、供电方式、系统热状态、开机时长和设备名称。
-- 菜单栏标题固定显示 CPU 温度与网络上下行速度，弹窗内可查看主要指标和已连接接口。
+- Rebuilt the Storage module as a fixed home page with three feature cards; Disk Usage, Large Files, and Safe Cleanup now open as separate secondary pages.
+- Changed long directory lists to lazy loading so growing scan results do not slow down the home page or initial rendering.
+- Fixed a missing SF Symbol icon for the Large Files entry on macOS 26.
+- Changed the Bundle ID to the public repository identity `io.github.svsvnm.MacResourceMonitor`, removing traces of local account names.
+- Preserved existing behavior, including remaining in the menu bar after the window closes and collecting real-time sensor and charging-power data.
 
-## 进程流量监控
+## System Monitor
 
-- 使用 macOS 内置 `nettop` 按需读取外部网络接口的真实进程级累计收发字节；菜单弹窗或流量页面打开时约每 2 秒获取一次瞬时快照并在应用内计算差值，两处都关闭后停止。
-- 独立展示每个进程的名称、PID、当前下载速度、当前上传速度和本次监控累计流量。
-- 支持按进程名或 PID 搜索，并按当前流速、下载、上传或累计值排序。
-- 解析完整进程名，并在进程属于图形应用时显示对应应用图标。
-- 普通用户权限即可运行，不安装系统扩展，不启用 VPN，也不会与 Surge 等代理工具争用网络配置。
-- 该模块提供进程聚合统计，不读取域名、远端地址、连接内容或单条请求记录。
+- Refreshes CPU, memory, and primary network-interface data every 2 seconds, using 64-bit interface counters and rebuilding the rate baseline when the primary interface changes.
+- Shows approximately the last 2 minutes of CPU and memory trends.
+- Selects Apple SMC CPU temperature sensors by M1–M5 chip generation and displays average and peak values.
+- Reads the number of built-in fans and their real-time speeds; explicitly displays `0 RPM` when fans stop at low temperatures.
+- Reads the processes with the highest CPU usage, including PID, CPU percentage, and memory usage, only while the System Monitor page is visible.
+- Displays battery status, power source, system thermal state, uptime, and device name.
+- The menu bar title always shows CPU temperature and network upload/download rates; the popover provides key metrics and connected ports.
 
-## 实时充电功率
+## Process Traffic Monitoring
 
-应用读取 `AppleSmartBattery` 的本机电源遥测，并区分以下概念：
+- Uses the built-in macOS `nettop` utility on demand to read actual cumulative bytes sent and received by process over external network interfaces. While the menu popover or Traffic page is open, it obtains an instantaneous snapshot about every 2 seconds and calculates deltas inside the app; collection stops when both are closed.
+- Separately displays each process's name, PID, current download rate, current upload rate, and cumulative traffic for the current monitoring session.
+- Supports searching by process name or PID and sorting by current transfer rate, download, upload, or cumulative value.
+- Resolves full process names and displays the corresponding app icon for graphical applications.
+- Runs with standard user privileges, installs no system extension, enables no VPN, and does not compete with proxy tools such as Surge for network configuration.
+- Provides process-level aggregate statistics without reading domain names, remote addresses, connection contents, or individual request records.
 
-- **适配器输入功率**：电源适配器当前向整机提供的功率。
-- **电池实际充入功率**：真正进入电池的实时功率。
-- **系统功耗**：整机当前消耗的功率。
-- **USB-PD 协商上限**：端口协商能力，不会被误标为实时充电功率。
+## Real-Time Charging Power
 
-未连接电源、已充满或系统未提供对应字段时，界面会显示真实状态或“不可用”，不会使用估算值冒充测量结果。
+The app reads local power telemetry from `AppleSmartBattery` and distinguishes among the following concepts:
 
-## 接口与线缆监测
+- **Adapter input power**: The power currently supplied by the power adapter to the entire system.
+- **Actual battery charging power**: The real-time power actually entering the battery.
+- **System power consumption**: The power currently consumed by the entire system.
+- **USB-PD negotiated limit**: The port's negotiated capability, which is never mislabeled as real-time charging power.
 
-- 独立的“接口监测”模块，不与 CPU/内存页面混排。
-- 识别 USB-C、MagSafe 和可用的物理端口状态。
-- 展示 USB 2、USB 3、USB4、Thunderbolt 和 DisplayPort 活跃链路。
-- 展示 USB-PD 协商功率、电压、电流及可能的充电瓶颈。
-- macOS 实际提供数据时，展示线缆 E-Marker 的额定速率、功率、厂商和能力判断。
-- 内置 WhatCable 检测引擎使用 `--json --no-usb-probe`，不会对 USB 设备执行深度控制传输。
+When no power source is connected, the battery is full, or the system does not provide the relevant field, the interface displays the actual state or “Unavailable” rather than presenting an estimate as a measurement.
 
-## 空间分析与安全清理
+## Port and Cable Monitoring
 
-“存储清理”页首先告诉你空间被什么占用，再提供有限、明确的清理入口。
+- A dedicated Port Monitor module, separate from the CPU and memory page.
+- Identifies USB-C, MagSafe, and available physical port states.
+- Displays active USB 2, USB 3, USB4, Thunderbolt, and DisplayPort links.
+- Displays USB-PD negotiated power, voltage, current, and potential charging bottlenecks.
+- When macOS supplies the data, displays the cable E-Marker's rated speed, power, vendor, and capability assessment.
+- The built-in WhatCable detection engine uses `--json --no-usb-probe` and does not perform deep control transfers against USB devices.
 
-存储首页采用三张可进入的 Liquid Glass 功能卡片，只保留磁盘概览以及“空间占用”“大文件”“安全清理”入口。详细列表和操作位于各自的二级页面，返回首页后不会保留冗长列表，后续增加更多工具也不会让首页无限增长。
+## Space Analysis and Safe Cleanup
 
-### 只读空间分析
+The Storage Cleanup page first explains what is using disk space, then provides a limited set of explicit cleanup actions.
 
-- 按实际大小列出 `/Applications`、个人目录和 `~/Library` 中的主要占用项。
-- 继续拆分 `Application Support`、应用容器、共享容器和开发工具数据，避免只显示一个笼统的“Library 很大”。
-- 使用本机 Spotlight 索引列出实际磁盘占用 500 MB 以上的大文件，最多显示 20 项；稀疏文件按已分配空间计算。
-- 目录和应用大小使用分批 `du` 统计，避免逐项启动外部进程；超时或权限受限时明确提示结果不完整。
-- 每个目录和大文件都可以在 Finder 中定位。
-- 大文件与个人目录只读展示，不会进入一键清理范围。
+The Storage home page uses three navigable Liquid Glass feature cards and retains only the disk overview plus entries for Disk Usage, Large Files, and Safe Cleanup. Detailed lists and actions live on their respective secondary pages. Long lists are not retained after returning to the home page, and adding more tools later will not cause the home page to grow without limit.
 
-### 可清理项目
+### Read-Only Space Analysis
 
-| 类别 | 默认选择 | 行为 |
+- Lists the largest items in `/Applications`, the home directory, and `~/Library` by actual size.
+- Further breaks down `Application Support`, app containers, group containers, and developer-tool data instead of reporting only a vague, oversized “Library” category.
+- Uses the local Spotlight index to list up to 20 large files occupying more than 500 MB of actual disk space; sparse files are measured by allocated space.
+- Measures directory and app sizes with batched `du` operations rather than starting an external process for every item; clearly indicates when results are incomplete because of timeouts or restricted permissions.
+- Every directory and large file can be revealed in Finder.
+- Large files and personal directories are displayed read-only and are never included in one-click cleanup.
+
+### Items That Can Be Cleaned
+
+| Category | Selected by Default | Behavior |
 | --- | --- | --- |
-| 用户应用缓存 | 是 | 删除可重新生成的 `~/Library/Caches` 内容，并保留本应用的检测组件缓存 |
-| 用户日志与崩溃报告 | 是 | 清理 `~/Library/Logs` 中的用户级日志 |
-| Xcode DerivedData | 否 | 删除可重新生成的构建缓存 |
-| 废纸篓 | 否 | 永久删除，界面会显示不可恢复警告并再次确认 |
+| User app caches | Yes | Deletes regenerable contents of `~/Library/Caches` while preserving this app's detection-component cache |
+| User logs and crash reports | Yes | Cleans user-level logs in `~/Library/Logs` |
+| Xcode DerivedData | No | Deletes regenerable build caches |
+| Trash | No | Permanently deletes its contents; the interface displays an irreversible-action warning and asks for confirmation again |
 
-文稿、照片、下载、桌面、影片、音乐和其他个人内容不会被自动清理。受 macOS 隐私保护或尚未下载的云端内容可能无法统计。
+Documents, photos, downloads, Desktop items, movies, music, and other personal content are never cleaned automatically. Content protected by macOS privacy controls or stored only in the cloud may not be measurable.
 
-## 应用卸载
+## App Uninstaller
 
-- 扫描 `/Applications` 和 `~/Applications` 中的第三方应用，并按大小排序。
-- 排除系统应用、符号链接和 Mac 资源监控自身。
-- 应用本体通过 macOS 废纸篓机制移除，正常情况下可恢复。
-- 只处理与应用 Bundle ID 精确匹配的缓存、偏好、容器、WebKit、HTTPStorage、日志和启动项。
-- 不按模糊名称批量删除文件，也不会重置全局登录项、隐私或后台项目数据库。
-- 系统级或受保护应用可能需要管理员权限；应用会保留未获授权的内容并报告失败。
+- Scans third-party apps in `/Applications` and `~/Applications` and sorts them by size.
+- Excludes system apps, symbolic links, and Mac Resource Monitor itself.
+- Removes app bundles through the macOS Trash mechanism, so they can normally be restored.
+- Processes only caches, preferences, containers, WebKit data, HTTPStorage, logs, and launch items that exactly match the app's Bundle ID.
+- Never bulk-deletes files using fuzzy name matching and never resets global login-item, privacy, or background-item databases.
+- System-level or protected apps may require administrator privileges; the app retains anything it is not authorized to remove and reports the failure.
 
-## Liquid Glass 界面
+## Liquid Glass Interface
 
-- macOS 26 原生 `glassEffect` 卡片和 `.glass` / `.glassProminent` 按钮，不使用旧版模糊材质模拟 Liquid Glass。
-- `GlassEffectContainer` 统一相邻玻璃元素的采样与渲染。
-- 常驻侧边栏按概览和管理工具分组，模块切换自动返回内容顶部。
-- 每个模块拥有一张结果优先的状态 Hero，以大标题、状态环、关键数值和单一主操作建立视觉焦点。
-- 内容区采用任务卡片和分区标题控制信息密度，长列表只出现在二级页面。
-- 环境光晕与强调色会随模块变化，同时支持浅色与深色外观。
-- 隐藏式标题栏保留原生窗口控制按钮。
+- Native macOS 26 Liquid Glass is used for the sidebar, status headers, process-filter shell, and menu root panel; dense menus use the more robust Regular glass, and buttons use `.glass` / `.glassProminent`.
+- Real-time telemetry, historical trends, and long lists use stable translucent surfaces to prevent high-frequency refreshes from triggering large-area glass resampling.
+- Text throughout the app uses a semantic type hierarchy starting at 11–13 pt, with compact monospaced styling retained for timestamps and units.
+- The persistent sidebar is grouped into Overview and Management Tools, and switching modules automatically returns the content to the top.
+- Each module has a results-first status header that establishes a visual focal point through its title, status, key value, and single primary action.
+- Ambient glow and translucent windows support both Light and Dark appearances while preserving native window controls.
 
-## 菜单栏与窗口行为
+## Menu Bar and Window Behavior
 
-- 关闭主窗口不会退出应用，Dock 图标会隐藏，菜单栏仅保留 CPU、内存、温度和网络等轻量采集；进程排行、风扇、电源和线缆 helper 按面板可见性启停。
-- 进程流量在菜单弹窗和流量页面都关闭后停止采样。
-- 菜单栏弹窗可重新打开主面板或退出程序。
-- 菜单栏弹窗展示当前进程流量 Top 5，以及每个进程的实时下载和上传速度。
-- 菜单弹窗的系统指标和进程流量 Top 5 均约每 2 秒更新，主面板进程流量同样约每 2 秒更新。
-- 关闭主窗口不会退出菜单栏监控；需要重新打开时可从菜单栏进入。
-- 只有选择“退出”或按下 `Command + Q` 才会结束进程。
+- Closing the main window does not quit the app. The Dock icon is hidden, and the menu bar retains only lightweight collection for CPU, memory, temperature, and network data; helpers for process rankings, fans, power, and cables start and stop according to panel visibility.
+- Process traffic sampling stops when both the menu popover and Traffic page are closed.
+- The menu bar popover can reopen the main panel or quit the app.
+- The menu bar popover displays the top three processes by current traffic, including each process's real-time download and upload rates.
+- System metrics and the top three processes in the menu popover both update about every 2 seconds; process traffic in the main panel updates at the same approximate interval.
+- Closing the main window does not stop menu bar monitoring; reopen it from the menu bar when needed.
+- The process ends only when you choose Quit or press `Command + Q`.
 
-## 隐私与安全边界
+## Privacy and Security Boundaries
 
-- 所有数据都在本机读取和处理，不需要账号，也没有遥测上传。
-- Bundle ID 使用与公开仓库对应的 `io.github.svsvnm.MacResourceMonitor`，不包含本机账户名、设备名或绝对用户路径。
-- 公开仓库不提交本机构建产物、扫描结果或包含个人文件路径的运行截图。
-- 系统监控、SMC、端口和电源采集均为只读操作。
-- 应用不会控制风扇、修改充电策略、调整端口配置或改变网络设置。
-- 清理操作只针对界面明确列出的路径，并在执行前二次确认。
-- 应用卸载使用废纸篓；废纸篓清理本身属于永久删除，默认不选择。
-- 无法读取的受保护目录会被跳过，不会通过降低系统安全设置来绕过权限。
+- All data is read and processed locally. No account is required, and no telemetry is uploaded.
+- The Bundle ID is `io.github.svsvnm.MacResourceMonitor`, matching the public repository, and contains no local account name, device name, or absolute user path.
+- The public repository does not include local build artifacts, scan results, or runtime screenshots containing personal file paths.
+- System, SMC, port, and power collection operations are read-only.
+- The app does not control fans, modify charging policies, change port configuration, or alter network settings.
+- Cleanup operations target only paths explicitly listed in the interface and require a second confirmation before execution.
+- App removal uses the Trash. Emptying the Trash is itself a permanent deletion and is not selected by default.
+- Protected directories that cannot be read are skipped; the app never bypasses permissions by weakening system security settings.
 
-## 系统要求
+## System Requirements
 
-- macOS 26.0 或更高版本。
-- Apple Silicon（当前构建目标为 `arm64-apple-macos26.0`）。
-- Xcode 26 Command Line Tools 或完整 Xcode 26，用于从源码构建。
-- 温度、风扇、线缆和电源字段取决于具体 Mac 型号与 macOS 是否公开对应数据。
+- macOS 26.0 or later.
+- Apple Silicon (the current build target is `arm64-apple-macos26.0`).
+- Xcode 26 Command Line Tools or the full Xcode 26 application to build from source.
+- Availability of temperature, fan, cable, and power fields depends on the Mac model and whether macOS exposes the corresponding data.
 
-## 下载与安装
+## Download and Installation
 
-从 [GitHub Releases](https://github.com/svsvnm/MacResourceMonitor/releases/latest) 下载 `MacResourceMonitor-2.5.3.zip`，解压后将“Mac资源监控.app”拖入“应用程序”目录。
+Download `MacResourceMonitor-2.5.4.zip` from [GitHub Releases](https://github.com/svsvnm/MacResourceMonitor/releases/latest), extract it, and drag `Mac资源监控.app` into the Applications folder.
 
-Release 压缩包由 GitHub Actions 在 macOS 26 构建机上从对应标签源码生成并完成 ad-hoc 签名。目前未进行 Apple Developer ID 签名或公证；如 Gatekeeper 阻止首次打开，请在 Finder 中右键应用并选择“打开”，确认来源后继续。
+Pushing a matching `v*` tag builds the release archive from that tag on a macOS 26 GitHub Actions runner, uploads the ZIP and SHA-256 checksum, and publishes the GitHub Release automatically. The app is ad-hoc signed, but it is not currently signed with an Apple Developer ID or notarized. If Gatekeeper blocks the first launch, Control-click the app in Finder, choose Open, and continue after confirming the source.
 
-## 从源码构建
+## Building from Source
 
-项目不依赖 Xcode 工程、Swift Package Manager 或第三方包管理器，构建脚本直接调用系统 Swift 编译器。
+The project does not depend on an Xcode project, Swift Package Manager, or any third-party package manager. The build script invokes the system Swift compiler directly.
 
 ```zsh
 git clone https://github.com/svsvnm/MacResourceMonitor.git
@@ -280,49 +289,49 @@ chmod +x build.sh
 ./build.sh
 ```
 
-构建成功后会在项目根目录生成：
+After a successful build, the following is created in the repository root:
 
 ```text
 Mac资源监控.app
 ```
 
-启动本地构建：
+Launch the local build:
 
 ```zsh
 open "Mac资源监控.app"
 ```
 
-安装到“应用程序”目录：
+Install it in the Applications folder:
 
 ```zsh
 ditto "Mac资源监控.app" "/Applications/Mac资源监控.app"
 open "/Applications/Mac资源监控.app"
 ```
 
-`build.sh` 会执行以下步骤：
+`build.sh` performs the following steps:
 
-1. 创建标准 `.app` Bundle 目录。
-2. 复制 `Info.plist`、应用图标、第三方声明和 WhatCable 运行资源。
-3. 使用 Swift 编译器链接 SwiftUI、AppKit、IOKit 和 SystemConfiguration。
-4. 对 WhatCable helper 和最终 App 执行本机 ad-hoc 签名。
+1. Creates a standard `.app` bundle directory.
+2. Copies `Info.plist`, the app icon, third-party notices, and WhatCable runtime resources.
+3. Uses the Swift compiler to link SwiftUI, AppKit, IOKit, and SystemConfiguration.
+4. Ad-hoc signs the WhatCable helper and the final app locally.
 
-提交前可运行与 GitHub Actions 相同的完整检查：
+Before submitting changes, run the same complete checks used by GitHub Actions:
 
 ```zsh
 ./Scripts/ci-check.sh
 ```
 
-检查内容包括元数据与 README 版本一致性、Swift 警告即错误类型检查、全新 App Bundle 构建、arm64 架构、资源完整性和代码签名。
+These checks verify consistency between metadata and the README version, type-check Swift with warnings treated as errors, build a clean app bundle, and validate the arm64 architecture, resource integrity, and code signature.
 
-验证签名：
+Verify the signature:
 
 ```zsh
 codesign --verify --deep --strict --verbose=2 "Mac资源监控.app"
 ```
 
-> 仓库不提交构建生成的 `.app`；正式 Release 压缩包由 GitHub Actions 从对应标签源码重新构建并上传。
+> The repository does not include generated `.app` bundles. Official release archives are rebuilt by GitHub Actions from the source for the corresponding tag and then uploaded.
 
-## 项目结构
+## Project Structure
 
 ```text
 MacResourceMonitor/
@@ -341,38 +350,40 @@ MacResourceMonitor/
 │   ├── ProcessNetworkMonitor.swift
 │   └── StorageManager.swift
 ├── Info.plist
+├── README.md
+├── README.zh-CN.md
 ├── THIRD_PARTY_NOTICES.md
 └── build.sh
 ```
 
-- `MacResourceMonitor.swift`：系统采集、SMC、电源遥测、Liquid Glass 主界面、菜单栏和应用生命周期。
-- `CableMonitor.swift`：WhatCable helper 的安全暂存、执行、JSON 解析和端口快照。
-- `CommandRunner.swift`：隔离外部命令输出并提供强制超时，避免管道阻塞采集任务。
-- `ProcessNetworkMonitor.swift`：`nettop` 进程流量采样、累计模型、搜索排序与流量面板。
-- `StorageManager.swift`：磁盘占用、目录/大文件分析、清理分类和应用卸载。
-- `build.sh`：可重复执行的 arm64 App Bundle 构建与签名脚本。
+- `MacResourceMonitor.swift`: System collection, SMC, power telemetry, the Liquid Glass main interface, menu bar, and app lifecycle.
+- `CableMonitor.swift`: Safe staging and execution of the WhatCable helper, JSON parsing, and port snapshots.
+- `CommandRunner.swift`: Isolates external-command output and enforces timeouts to prevent blocked pipes from stalling collection tasks.
+- `ProcessNetworkMonitor.swift`: `nettop` process traffic sampling, the cumulative model, search and sorting, and the Traffic panel.
+- `StorageManager.swift`: Disk usage, directory and large-file analysis, cleanup categories, and app removal.
+- `build.sh`: Reproducible arm64 app-bundle build and signing script.
 
-## 已知限制
+## Known Limitations
 
-- SMC 键和硬件传感器随机型变化；无法读取时会显示“不可用”。
-- 普通 3A 线缆、仅充电线缆或某些转接器可能不提供 E-Marker 信息。
-- Spotlight 未索引、隐私受限或纯云端文件可能不会进入大文件列表。
-- `du` 只能统计当前用户有权限读取的目录。
-- 进程流量来自 `nettop` 当前可见的外部接口 socket，仅在菜单弹窗或流量页面可见时采样；短于采样周期或发生在界面隐藏期间的连接不会形成完整累计记录，且不包含本机回环通信。
-- 进程流量面板不提供 Surge 式域名、请求和连接规则视图；实现这类数据路径级能力需要 Network Extension entitlement 和系统扩展签名。
-- 当前仅构建 arm64，不支持 Intel Mac。
+- SMC keys and hardware sensors vary by model; fields display “Unavailable” when they cannot be read.
+- Standard 3A cables, charge-only cables, and some adapters may not provide E-Marker information.
+- Files that Spotlight has not indexed, files restricted by privacy controls, and cloud-only files may not appear in the large-file list.
+- `du` can measure only directories the current user has permission to read.
+- Process traffic comes from external-interface sockets currently visible to `nettop` and is sampled only while the menu popover or Traffic page is visible. Connections shorter than the sampling interval or active while the interface is hidden may not produce complete cumulative records, and local loopback communication is excluded.
+- The Process Traffic panel does not provide a Surge-style view of domains, requests, or connection rules. Implementing this kind of data-path visibility requires a Network Extension entitlement and signed system extension.
+- The current build is arm64 only and does not support Intel Macs.
 
-## 第三方组件
+## Third-Party Components
 
-- Apple SMC 读取结构和访问方式参考 [Stats](https://github.com/exelban/stats)。
-- USB-C、USB-PD、E-Marker、DisplayPort 与 Thunderbolt 诊断使用 [WhatCable](https://github.com/darrylmorley/whatcable) 的只读命令行引擎，固定源修订为 `82fded6f428ddfc79dfb204bf0b8e049ef6a8c32`。
+- Apple SMC reading structures and access patterns are based on [Stats](https://github.com/exelban/stats).
+- USB-C, USB-PD, E-Marker, DisplayPort, and Thunderbolt diagnostics use the read-only command-line engine from [WhatCable](https://github.com/darrylmorley/whatcable), pinned to source revision `82fded6f428ddfc79dfb204bf0b8e049ef6a8c32`.
 
-完整版权和 MIT 许可文本见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。这些声明仅覆盖相应第三方组件。
+See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for complete copyright and MIT license texts. Those notices apply only to the corresponding third-party components.
 
-## 版本信息
+## Version Information
 
-- App 版本：2.5.3
-- Build：43
-- Bundle ID：`io.github.svsvnm.MacResourceMonitor`
-- 最低系统版本：macOS 26.0
-- 构建架构：arm64
+- App version: 2.5.4
+- Build: 44
+- Bundle ID: `io.github.svsvnm.MacResourceMonitor`
+- Minimum system version: macOS 26.0
+- Build architecture: arm64

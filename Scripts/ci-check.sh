@@ -19,10 +19,25 @@ ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml")'
 app_version="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
 build_number="$(plutil -extract CFBundleVersion raw Info.plist)"
 
-grep -Fq -- "> 当前版本：**${app_version}（Build ${build_number}）**" README.md
+[[ -f README.md ]]
+[[ -f README.zh-CN.md ]]
+
+grep -Fq -- 'href="README.zh-CN.md"' README.md
+grep -Fq -- 'href="README.md"' README.zh-CN.md
+
+grep -Fq -- "> Current version: **${app_version} (Build ${build_number})**" README.md
 grep -Fq -- "version-${app_version}-" README.md
-grep -Fq -- "- App 版本：${app_version}" README.md
-grep -Fq -- "- Build：${build_number}" README.md
+grep -Fq -- "## What's New in ${app_version}" README.md
+grep -Fq -- "MacResourceMonitor-${app_version}.zip" README.md
+grep -Fq -- "- App version: ${app_version}" README.md
+grep -Fq -- "- Build: ${build_number}" README.md
+
+grep -Fq -- "> 当前版本：**${app_version}（Build ${build_number}）**" README.zh-CN.md
+grep -Fq -- "version-${app_version}-" README.zh-CN.md
+grep -Fq -- "## ${app_version} 更新" README.zh-CN.md
+grep -Fq -- "MacResourceMonitor-${app_version}.zip" README.zh-CN.md
+grep -Fq -- "- App 版本：${app_version}" README.zh-CN.md
+grep -Fq -- "- Build：${build_number}" README.zh-CN.md
 
 echo "[2/6] Type-check Swift sources with warnings as errors"
 xcrun swiftc \

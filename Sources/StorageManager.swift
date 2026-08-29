@@ -911,7 +911,7 @@ struct StorageCleanupView: View {
         VStack(alignment: .leading, spacing: 16) {
             if let message = model.storageScanMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(InterfaceTypography.captionMedium)
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 3)
             }
@@ -960,12 +960,12 @@ struct StorageCleanupView: View {
                     Text("选择一个存储任务")
                         .font(.system(size: 17, weight: .semibold))
                     Text("先查看，再决定。详细结果分别位于独立页面。")
-                        .font(.system(size: 10))
+                        .font(InterfaceTypography.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text("3 个工具")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(InterfaceTypography.captionMedium)
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 3)
@@ -1008,13 +1008,13 @@ struct StorageCleanupView: View {
                     Text("默认只读，清理前再次确认")
                         .font(.system(size: 12, weight: .semibold))
                     Text("文稿、照片、下载和其他个人文件不会被自动删除。")
-                        .font(.system(size: 10))
+                        .font(InterfaceTypography.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
             }
             .padding(15)
-            .glassCard(cornerRadius: 18)
+            .glassCard(cornerRadius: InterfaceMetrics.panelRadius)
         }
     }
 
@@ -1033,8 +1033,11 @@ struct StorageCleanupView: View {
             VStack(alignment: .leading, spacing: 13) {
                 HStack {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(InterfacePalette.iconSurface)
+                        RoundedRectangle(
+                            cornerRadius: InterfaceMetrics.controlRadius,
+                            style: .continuous
+                        )
+                        .fill(InterfacePalette.iconSurface)
                         Image(systemName: symbol)
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(color)
@@ -1052,7 +1055,7 @@ struct StorageCleanupView: View {
                     Text(title)
                         .font(.system(size: 15, weight: .semibold))
                     Text(subtitle)
-                        .font(.system(size: 10))
+                        .font(InterfaceTypography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -1064,7 +1067,7 @@ struct StorageCleanupView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 Text(detail)
-                    .font(.system(size: 9))
+                    .font(InterfaceTypography.microMetadata)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -1118,13 +1121,13 @@ struct StorageCleanupView: View {
                 Text(pageTitle)
                     .font(.system(size: 20, weight: .semibold))
                 Text(pageSubtitle)
-                    .font(.system(size: 11))
+                    .font(InterfaceTypography.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
         }
         .padding(15)
-        .glassCard(cornerRadius: 18)
+        .glassCard(cornerRadius: InterfaceMetrics.panelRadius)
     }
 
     private var pageTitle: String {
@@ -1165,11 +1168,11 @@ struct StorageCleanupView: View {
             }
             .frame(height: 9)
             Text("可用空间 \(storageFormatBytes(model.diskAvailable))")
-                .font(.system(size: 11))
+                .font(InterfaceTypography.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(16)
-        .glassCard(cornerRadius: 20)
+        .glassCard(cornerRadius: InterfaceMetrics.panelRadius)
     }
 
     private var storageUsagePage: some View {
@@ -1186,7 +1189,7 @@ struct StorageCleanupView: View {
             }
 
             Text("只读展示 · 受 macOS 隐私保护或尚未下载的云端内容可能无法统计，结果不等同于磁盘总占用。")
-                .font(.system(size: 9))
+                .font(InterfaceTypography.microMetadata)
                 .foregroundStyle(.tertiary)
         }
     }
@@ -1198,16 +1201,16 @@ struct StorageCleanupView: View {
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
                 Text("最多显示 20 项")
-                    .font(.system(size: 9))
+                    .font(InterfaceTypography.microMetadata)
                     .foregroundStyle(.tertiary)
             }
 
             if model.largeFiles.isEmpty {
                 Text(model.isScanningStorageUsage ? "正在查找大文件…" : "未发现实际磁盘占用 500 MB 以上的索引文件")
-                    .font(.system(size: 11))
+                    .font(InterfaceTypography.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 220)
-                    .glassCard(cornerRadius: 18)
+                    .glassCard(cornerRadius: InterfaceMetrics.panelRadius)
             } else {
                 LazyVStack(spacing: 8) {
                     ForEach(model.largeFiles) { file in
@@ -1217,7 +1220,7 @@ struct StorageCleanupView: View {
             }
 
             Text("按实际已分配空间显示；大文件仅用于定位，不会进入一键清理范围。")
-                .font(.system(size: 9))
+                .font(InterfaceTypography.microMetadata)
                 .foregroundStyle(.tertiary)
         }
     }
@@ -1239,23 +1242,23 @@ struct StorageCleanupView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if let error = model.cleanupErrorText {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(InterfaceTypography.captionMedium)
                             .foregroundStyle(.orange)
                     } else if let message = model.cleanupMessage {
                         Label(message, systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(InterfaceTypography.captionMedium)
                             .foregroundStyle(.green)
                     }
                     if let warning = model.cleanupScanMessage {
                         Label(warning, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(InterfaceTypography.captionMedium)
                             .foregroundStyle(.orange)
                     }
                     if model.cleanupErrorText == nil,
                        model.cleanupMessage == nil,
                        model.cleanupScanMessage == nil {
                         Text("不会扫描或删除文档、照片、下载内容和其他个人文件。")
-                            .font(.system(size: 10))
+                            .font(InterfaceTypography.caption)
                             .foregroundStyle(.tertiary)
                     }
                 }
@@ -1281,7 +1284,7 @@ struct StorageCleanupView: View {
                 Text(location.title)
                     .font(.system(size: 13, weight: .semibold))
                 Text(location.detail)
-                    .font(.system(size: 10))
+                    .font(InterfaceTypography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -1293,7 +1296,7 @@ struct StorageCleanupView: View {
                 .buttonStyle(.glass)
         }
         .padding(13)
-        .stableListCard(cornerRadius: 16)
+        .stableListCard(cornerRadius: InterfaceMetrics.cardRadius)
     }
 
     private func largeFileRow(_ file: LargeFileItem) -> some View {
@@ -1304,7 +1307,7 @@ struct StorageCleanupView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                 Text(file.path)
-                    .font(.system(size: 10))
+                    .font(InterfaceTypography.caption)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -1316,7 +1319,7 @@ struct StorageCleanupView: View {
                 .buttonStyle(.glass)
         }
         .padding(13)
-        .stableListCard(cornerRadius: 16)
+        .stableListCard(cornerRadius: InterfaceMetrics.cardRadius)
     }
 
     private func cleanupRow(_ category: CleanupCategory) -> some View {
@@ -1340,7 +1343,7 @@ struct StorageCleanupView: View {
                         Text(category.title).font(.system(size: 13, weight: .medium))
                         if category.isIrreversible {
                             Text("不可恢复")
-                                .font(.system(size: 8, weight: .semibold))
+                                .font(InterfaceTypography.microEmphasized)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(Color.red.opacity(0.12), in: Capsule())
@@ -1348,7 +1351,7 @@ struct StorageCleanupView: View {
                         }
                     }
                     Text(category.detail)
-                        .font(.system(size: 10))
+                        .font(InterfaceTypography.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -1356,7 +1359,7 @@ struct StorageCleanupView: View {
                     Text(storageFormatBytes(category.bytes))
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                     Text("\(category.itemCount) 个顶层项目")
-                        .font(.system(size: 9))
+                        .font(InterfaceTypography.microMetadata)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -1364,13 +1367,16 @@ struct StorageCleanupView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .stableListCard(cornerRadius: 16)
+        .stableListCard(cornerRadius: InterfaceMetrics.cardRadius)
     }
 
     private func managementListSymbol(_ symbol: String, color: Color) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(InterfacePalette.iconSurface)
+            RoundedRectangle(
+                cornerRadius: InterfaceMetrics.controlRadius,
+                style: .continuous
+            )
+            .fill(InterfacePalette.iconSurface)
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(color)
@@ -1395,52 +1401,118 @@ struct AppUninstallerView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("已安装应用")
-                        .font(.system(size: 17, weight: .semibold))
-                    Text("按占用排序 · 卸载内容移入废纸篓，可恢复")
-                        .font(.system(size: 10))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
+                    TextField("搜索应用或 Bundle ID", text: $query)
+                        .textFieldStyle(.plain)
+                    if !query.isEmpty {
+                        Button {
+                            query = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, 11)
+                .frame(width: 310, height: 34)
+                .background(
+                    Color.primary.opacity(0.045),
+                    in: RoundedRectangle(
+                        cornerRadius: InterfaceMetrics.controlRadius,
+                        style: .continuous
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: InterfaceMetrics.controlRadius,
+                        style: .continuous
+                    )
+                    .stroke(InterfacePalette.cardStroke, lineWidth: 0.6)
+                )
+
                 Spacer()
-                TextField("搜索应用或 Bundle ID", text: $query)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 8)
-                    .frame(width: 250)
-                    .glassEffect(.regular, in: Capsule())
+
+                Text(
+                    query.isEmpty
+                        ? "按占用排序"
+                        : "\(filteredApplications.count) 个匹配结果"
+                )
+                .font(InterfaceTypography.microMetadata)
+                .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 2)
 
             if let warning = model.applicationScanMessage {
                 Label(warning, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(InterfaceTypography.captionMedium)
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 2)
             }
 
             if let message = model.uninstallMessage {
                 Text(message)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(InterfaceTypography.captionMedium)
                     .foregroundStyle(message.hasPrefix("无法") ? Color.orange : Color.green)
                     .padding(.horizontal, 2)
             }
 
             if model.isScanningApplications && model.installedApplications.isEmpty {
                 ProgressView("正在统计应用占用空间…")
-                    .frame(maxWidth: .infinity, minHeight: 320)
+                    .frame(maxWidth: .infinity, minHeight: 260)
+            } else if filteredApplications.isEmpty {
+                ContentUnavailableView(
+                    "没有匹配的应用",
+                    systemImage: "magnifyingglass",
+                    description: Text("尝试搜索其他应用名称或 Bundle ID")
+                )
+                .frame(maxWidth: .infinity, minHeight: 220)
+                .stableListCard(cornerRadius: InterfaceMetrics.cardRadius)
             } else {
-                LazyVStack(spacing: 8) {
-                    ForEach(filteredApplications) { application in
-                        applicationRow(application)
+                VStack(spacing: 0) {
+                    HStack(spacing: 12) {
+                        Text("应用")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("占用")
+                            .frame(width: 84, alignment: .trailing)
+                        Text("操作")
+                            .frame(width: 108, alignment: .trailing)
+                    }
+                    .font(InterfaceTypography.microEmphasized)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+
+                    Divider().opacity(0.55)
+
+                    LazyVStack(spacing: 0) {
+                        ForEach(
+                            Array(filteredApplications.enumerated()),
+                            id: \.element.id
+                        ) { index, application in
+                            applicationRow(application)
+                            if index < filteredApplications.count - 1 {
+                                Divider()
+                                    .opacity(0.45)
+                                    .padding(.leading, 64)
+                            }
+                        }
                     }
                 }
+                .stableListCard(cornerRadius: InterfaceMetrics.cardRadius)
             }
 
-            Text("系统应用和“Mac资源监控”自身已排除；不会按模糊名称删除文件，也不会重置全局系统设置。")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+            Label(
+                "仅精确匹配 Bundle ID；卸载内容移入废纸篓，可恢复",
+                systemImage: "lock.shield"
+            )
+            .font(InterfaceTypography.microMetadata)
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 3)
         }
         .task {
             if model.installedApplications.isEmpty { model.scanApplications() }
@@ -1464,52 +1536,73 @@ struct AppUninstallerView: View {
     }
 
     private func applicationRow(_ application: InstalledApplication) -> some View {
-        HStack(spacing: 13) {
+        HStack(spacing: 12) {
             Image(nsImage: NSWorkspace.shared.icon(forFile: application.path))
                 .resizable()
                 .scaledToFit()
-                .frame(width: 42, height: 42)
-            VStack(alignment: .leading, spacing: 3) {
+                .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(application.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(InterfaceTypography.bodyEmphasized)
+                        .lineLimit(1)
                     Text("v\(application.version)")
-                        .font(.system(size: 9))
+                        .font(InterfaceTypography.microMetadata)
                         .foregroundStyle(.tertiary)
                     if application.needsAdministrator {
-                        Label("可能需要管理员权限", systemImage: "lock.fill")
-                            .font(.system(size: 8, weight: .medium))
+                        Label("需授权", systemImage: "lock.fill")
+                            .font(InterfaceTypography.microMetadata)
                             .foregroundStyle(.orange)
+                            .help("此应用可能需要管理员权限")
                     }
                 }
-                Text(application.bundleIdentifier ?? "未提供 Bundle ID")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Text(application.path)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Text(storageFormatBytes(application.bytes))
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .frame(width: 90, alignment: .trailing)
-            Button("在 Finder 中显示") { model.reveal(application) }
-                .buttonStyle(.glass)
-            Button(role: .destructive) {
-                pendingApplication = application
-            } label: {
-                if model.uninstallingAppID == application.id {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text("卸载")
+
+                HStack(spacing: 6) {
+                    Text(application.bundleIdentifier ?? "未提供 Bundle ID")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text("·")
+                        .foregroundStyle(.quaternary)
+                    Text(application.path)
+                        .font(InterfaceTypography.microMetadata)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
-            .buttonStyle(.glass)
-            .disabled(model.uninstallingAppID != nil)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(storageFormatBytes(application.bytes))
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .frame(width: 84, alignment: .trailing)
+
+            HStack(spacing: 8) {
+                Button {
+                    model.reveal(application)
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help("在 Finder 中显示")
+
+                Button(role: .destructive) {
+                    pendingApplication = application
+                } label: {
+                    if model.uninstallingAppID == application.id {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("卸载")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.uninstallingAppID != nil)
+            }
+            .frame(width: 108, alignment: .trailing)
         }
-        .padding(13)
-        .stableListCard(cornerRadius: 16)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 

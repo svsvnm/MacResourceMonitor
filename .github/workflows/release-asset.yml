@@ -1,10 +1,13 @@
-name: Build and upload release asset
+name: Build and publish release
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag, for example v2.5.0
+        description: Release tag, for example v2.5.4
         required: true
         type: string
 
@@ -12,20 +15,36 @@ permissions:
   contents: write
 
 jobs:
-  build-and-upload:
-    name: Build and upload arm64 app
+  build-and-publish:
+    name: Build and publish arm64 app
     runs-on: macos-26
     timeout-minutes: 15
 
     steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            release_tag="$INPUT_TAG"
+          fi
+          if [[ -z "$release_tag" ]]; then
+            echo "Release tag is required." >&2
+            exit 1
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+
       - name: Check out release tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ steps.release.outputs.tag }}
 
       - name: Validate tag and metadata
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           version="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
           if [[ "$RELEASE_TAG" != "v${version}" ]]; then
@@ -40,14 +59,27 @@ jobs:
         run: |
           version="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
           archive="MacResourceMonitor-${version}.zip"
+          checksum="${archive}.sha256"
           ditto -c -k --sequesterRsrc --keepParent "Mac资源监控.app" "$archive"
           unzip -t "$archive"
-          shasum -a 256 "$archive"
+          shasum -a 256 "$archive" > "$checksum"
+          cat "$checksum"
 
-      - name: Upload asset to draft release
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           version="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
-          gh release upload "$RELEASE_TAG" "MacResourceMonitor-${version}.zip" --clobber
+          archive="MacResourceMonitor-${version}.zip"
+          checksum="${archive}.sha256"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$archive" "$checksum" --clobber
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          else
+            gh release create "$RELEASE_TAG" "$archive" "$checksum" \
+              --verify-tag \
+              --title "MacResourceMonitor ${version}" \
+              --generate-notes \
+              --latest
+          fi
