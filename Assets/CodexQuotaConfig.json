@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "providers": [
+    { "id": "codex", "enabled": true, "source": "cli", "cookieSource": "off" }
+  ]
+}

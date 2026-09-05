@@ -14,6 +14,7 @@ echo "[1/6] Validate project metadata and scripts"
 plutil -lint Info.plist
 zsh -n build.sh
 zsh -n Scripts/ci-check.sh
+zsh -n Scripts/prepare-codexbar.sh
 ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml")'
 
 app_version="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
@@ -51,17 +52,28 @@ xcrun swiftc \
   -framework IOKit \
   -framework SystemConfiguration \
   Sources/CommandRunner.swift \
+  Sources/CodexQuotaMonitor.swift \
+  Sources/CodexQuotaView.swift \
   Sources/ProcessNetworkMonitor.swift \
   Sources/StorageManager.swift \
   Sources/CableMonitor.swift \
   Sources/MacResourceMonitor.swift
 
 echo "[3/6] Build a fresh application bundle"
+mkdir -p .build/tests
+xcrun swiftc -swift-version 5 -warnings-as-errors -parse-as-library \
+  Sources/CodexQuotaMonitor.swift Tests/CodexQuotaTests.swift \
+  -o .build/tests/codex-quota-tests
+.build/tests/codex-quota-tests
 ./build.sh >/dev/null
 
 echo "[4/6] Verify bundle structure and metadata"
 [[ -x "$APP_EXECUTABLE" ]]
 [[ -x "$APP_HELPER" ]]
+[[ -x "$APP_DIR/Contents/Resources/Helpers/CodexBar/CodexBarCLI" ]]
+[[ -f "$APP_DIR/Contents/Resources/CodexQuotaConfig.json" ]]
+[[ -f "$APP_DIR/Contents/Resources/CodexBarLicenses/CodexBar-MIT.txt" ]]
+[[ -d "$APP_DIR/Contents/Resources/Helpers/CodexBar/CodexBar_CodexBarCore.bundle" ]]
 [[ -f "$APP_DIR/Contents/Resources/AppIcon.icns" ]]
 [[ -f "$APP_DIR/Contents/Resources/THIRD_PARTY_NOTICES.md" ]]
 [[ -d "$APP_DIR/Contents/Resources/WhatCable_WhatCableCore.bundle" ]]
@@ -73,6 +85,7 @@ cmp -s Info.plist "$APP_INFO"
 
 echo "[5/6] Verify code signatures"
 codesign --verify --strict "$APP_HELPER"
+codesign --verify --strict "$APP_DIR/Contents/Resources/Helpers/CodexBar/CodexBarCLI"
 codesign --verify --deep --strict "$APP_DIR"
 
 echo "[6/6] Check repository diff hygiene"
