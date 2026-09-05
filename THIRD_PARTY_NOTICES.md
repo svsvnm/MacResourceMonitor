@@ -1,5 +1,22 @@
 # Third-party notices
 
+## Codex subscription quota helper
+
+Codex quota queries use the unmodified CodexBar CLI v0.56.5 (macOS arm64),
+Copyright (c) 2026 Peter Steinberger, under the MIT License.
+Source: https://github.com/steipete/CodexBar/tree/v0.56.5
+Archive SHA-256: 1d8499c3b7b3f023ef0258f14d18fc5947f9f9b329af864137d9ad0a3b7802e9
+
+The CLI and its required resource bundle are redistributed together. Full
+license texts for CodexBar, Commander, SweetCookieKit, QuickJS, Sucrase,
+swift-crypto, swift-asn1 and swift-log, plus swift-crypto's third-party
+notices, are included in `Contents/Resources/CodexBarLicenses` in the app
+and `Assets/CodexBarLicenses` in this repository. No CodexBar GUI is bundled.
+The local adapter calls only the Codex CLI usage source. Browser imports,
+cost scans, hooks, other providers and reset-credit redemption are not enabled.
+
+---
+
 The read-only Apple SMC data structures and access pattern are informed by the
 open-source Stats project:
 

@@ -1499,6 +1499,7 @@ private struct CablePortCard: View {
 private enum DashboardSection: String, CaseIterable, Identifiable {
     case monitor = "系统监控"
     case traffic = "进程流量"
+    case aiUsage = "AI 用量"
     case ports = "接口监测"
     case cleanup = "存储清理"
     case uninstall = "应用卸载"
@@ -1509,6 +1510,7 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
         switch self {
         case .monitor: return "gauge.with.dots.needle.50percent"
         case .traffic: return "point.3.connected.trianglepath.dotted"
+        case .aiUsage: return "terminal"
         case .ports: return "cable.connector"
         case .cleanup: return "internaldrive"
         case .uninstall: return "square.grid.2x2"
@@ -1523,6 +1525,7 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
         switch self {
         case .monitor: return "性能与硬件状态"
         case .traffic: return "实时进程上下行"
+        case .aiUsage: return "Codex 订阅额度"
         case .ports: return "USB-C、雷雳与供电"
         case .cleanup: return "空间分析与安全清理"
         case .uninstall: return "应用占用与完整移除"
@@ -1533,6 +1536,7 @@ private enum DashboardSection: String, CaseIterable, Identifiable {
         switch self {
         case .monitor: return "SYSTEM / LIVE"
         case .traffic: return "NETWORK / PROCESS"
+        case .aiUsage: return "CODEX / QUOTA"
         case .ports: return "PORTS / POWER"
         case .cleanup: return "STORAGE / ANALYSIS"
         case .uninstall: return "APPS / MANAGEMENT"
@@ -1826,10 +1830,11 @@ private struct SidebarNavigationItem: View {
 private struct DashboardView: View {
     @ObservedObject var model: MonitorModel
     @ObservedObject var processNetworkModel: ProcessNetworkMonitor
+    let codexQuotaModel: CodexQuotaMonitor
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @StateObject private var storageModel = StorageManager()
-    @State private var selectedSection: DashboardSection = .monitor
+    @Binding var selectedSection: DashboardSection
     @State private var storagePage: StoragePage = .overview
 
     var body: some View {
@@ -1908,6 +1913,8 @@ private struct DashboardView: View {
             }
         } else if selectedSection == .traffic {
             ProcessTrafficView(model: processNetworkModel)
+        } else if selectedSection == .aiUsage {
+            CodexQuotaView(model: codexQuotaModel)
         } else if selectedSection == .ports {
             PortMonitorView(
                 monitor: model.snapshot.cableMonitor,
@@ -1967,6 +1974,7 @@ private struct DashboardView: View {
             VStack(spacing: 4) {
                 sidebarItem(.monitor)
                 sidebarItem(.traffic)
+                sidebarItem(.aiUsage)
             }
 
             sidebarGroupLabel("工具")
@@ -2091,12 +2099,14 @@ private struct DashboardView: View {
                     .foregroundStyle(.tertiary)
             }
 
-            Button(action: performHeroAction) {
-                Label(heroActionTitle, systemImage: "arrow.clockwise")
+            if selectedSection != .aiUsage {
+                Button(action: performHeroAction) {
+                    Label(heroActionTitle, systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.glassProminent)
+                .tint(selectedSection.tint)
+                .disabled(isHeroActionDisabled)
             }
-            .buttonStyle(.glassProminent)
-            .tint(selectedSection.tint)
-            .disabled(isHeroActionDisabled)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
@@ -2114,6 +2124,7 @@ private struct DashboardView: View {
             }
             return "系统运行正常"
         case .traffic: return "进程网络活动"
+        case .aiUsage: return "Codex 订阅额度"
         case .ports:
             if model.isRefreshingCable { return "正在检测接口" }
             return model.snapshot.cableMonitor.errorText == nil
@@ -2128,6 +2139,7 @@ private struct DashboardView: View {
         switch selectedSection {
         case .monitor: return "后台实时监控"
         case .traffic: return "系统原生只读采样"
+        case .aiUsage: return "按需查询当前账号"
         case .ports: return "仅检测，不修改端口"
         case .cleanup: return "默认只读，清理前确认"
         case .uninstall: return "应用移入废纸篓"
@@ -2136,6 +2148,7 @@ private struct DashboardView: View {
 
     private var heroFootnote: String {
         switch selectedSection {
+        case .aiUsage: return "每分钟更新 · 与菜单共享结果"
         case .monitor:
             if model.isRefreshingExpandedMetrics { return "正在更新磁盘、风扇和电源信息" }
             let date = model.snapshot.expandedMetricsUpdatedAt ?? model.snapshot.updatedAt
@@ -2161,6 +2174,7 @@ private struct DashboardView: View {
 
     private var heroValue: String {
         switch selectedSection {
+        case .aiUsage: return "Codex"
         case .monitor: return formatTemperature(model.snapshot.cpuTemperature)
         case .traffic: return "↓ \(formatRate(processNetworkModel.downloadBytesPerSecond))"
         case .ports:
@@ -2174,6 +2188,7 @@ private struct DashboardView: View {
 
     private var heroValueLabel: String {
         switch selectedSection {
+        case .aiUsage: return "订阅用量"
         case .monitor: return "当前 CPU 温度"
         case .traffic: return "↑ \(formatRate(processNetworkModel.uploadBytesPerSecond))"
         case .ports:
@@ -2188,6 +2203,7 @@ private struct DashboardView: View {
 
     private var heroActionTitle: String {
         switch selectedSection {
+        case .aiUsage: return "刷新额度"
         case .monitor: return "刷新"
         case .traffic: return "清零累计"
         case .ports: return model.isRefreshingCable ? "检测中" : "重新检测"
@@ -2199,6 +2215,7 @@ private struct DashboardView: View {
 
     private var isHeroActionDisabled: Bool {
         switch selectedSection {
+        case .aiUsage: return false
         case .monitor: return false
         case .traffic: return false
         case .ports: return model.isRefreshingCable
@@ -2209,6 +2226,8 @@ private struct DashboardView: View {
 
     private func performHeroAction() {
         switch selectedSection {
+        case .aiUsage:
+            codexQuotaModel.refresh(force: true)
         case .monitor:
             model.refresh()
         case .traffic:
@@ -2227,6 +2246,7 @@ private struct DashboardView: View {
         switch selectedSection {
         case .monitor: return "实时观察处理器、内存、温度、风扇和网络状态 · 每 2 秒刷新"
         case .traffic: return "按进程查看实时下载、上传与本次监控累计流量 · 不接管网络连接"
+        case .aiUsage: return "查看订阅额度与重置时间 · 复用当前 Codex 登录"
         case .ports: return "检查 USB-C、Thunderbolt、DisplayPort 与充电协商状态"
         case .cleanup: return "找出空间大户，安全清理可重新生成的数据"
         case .uninstall: return "按占用排序管理第三方应用及精确匹配的用户残留"
@@ -2241,6 +2261,8 @@ private struct MenuBarPresentationState {
 private struct MenuBarPanel: View {
     @ObservedObject var model: MonitorModel
     let processNetworkModel: ProcessNetworkMonitor
+    let codexQuotaModel: CodexQuotaMonitor
+    @Binding var selectedSection: DashboardSection
     @Environment(\.openWindow) private var openWindow
     @State private var presentation = MenuBarPresentationState()
 
@@ -2268,6 +2290,17 @@ private struct MenuBarPanel: View {
             hardwareSummary
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
+
+            menuDivider
+
+            CodexQuotaMenuSummary(model: codexQuotaModel) {
+                selectedSection = .aiUsage
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "dashboard")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
 
             menuDivider
 
@@ -2797,10 +2830,13 @@ private struct MacResourceMonitorApp: App {
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var applicationDelegate
     @State private var model = MonitorModel()
     @State private var processNetworkModel = ProcessNetworkMonitor()
+    @State private var codexQuotaModel = CodexQuotaMonitor()
+    @State private var selectedSection: DashboardSection = .monitor
 
     var body: some Scene {
         Window("Mac 资源监控", id: "dashboard") {
-            DashboardView(model: model, processNetworkModel: processNetworkModel)
+            DashboardView(model: model, processNetworkModel: processNetworkModel,
+                          codexQuotaModel: codexQuotaModel, selectedSection: $selectedSection)
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -2808,7 +2844,8 @@ private struct MacResourceMonitorApp: App {
         }
 
         MenuBarExtra {
-            MenuBarPanel(model: model, processNetworkModel: processNetworkModel)
+            MenuBarPanel(model: model, processNetworkModel: processNetworkModel,
+                         codexQuotaModel: codexQuotaModel, selectedSection: $selectedSection)
         } label: {
             MenuBarStatusLabel(model: model)
         }
