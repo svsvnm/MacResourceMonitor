@@ -6,6 +6,15 @@ struct CodexQuotaTests {
         precondition(condition(), message)
     }
 
+    @MainActor static func waitUntil(_ message: String,
+                                     condition: @MainActor () async -> Bool) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while !(await condition()) {
+            expect(ProcessInfo.processInfo.systemUptime < deadline, message)
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
     static let valid = Data(#"[{"provider":"codex","usage":{"primary":{"usedPercent":28,"windowMinutes":300,"resetsAt":"2026-09-05T12:00:00.000Z"},"secondary":{"usedPercent":59,"windowMinutes":10080,"resetsAt":"2026-09-08T12:00:00Z"},"identity":{"loginMethod":"Plus"}}}]"#.utf8)
 
     @MainActor static func main() async throws {
@@ -52,7 +61,7 @@ struct CodexQuotaTests {
         expect(initialCount == 0, "no work before activation")
         model.setActive(true, for: .dashboard)
         model.setActive(true, for: .menuBar)
-        try await Task.sleep(nanoseconds: 60_000_000)
+        try await waitUntil("shared result completes") { model.state.snapshot == snapshot && !model.state.isRefreshing }
         expect(model.state.snapshot == snapshot, "shared result")
         let firstCount = await source.count
         expect(firstCount == 1, "two consumers must share one request")
@@ -69,18 +78,22 @@ struct CodexQuotaTests {
         model.setActive(true, for: .dashboard)
         await source.fail(with: .unavailable)
         model.refresh(force: true)
-        try await Task.sleep(nanoseconds: 60_000_000)
+        try await waitUntil("transient failure completes") { model.state.error == .unavailable && !model.state.isRefreshing }
         expect(model.state.snapshot == snapshot && model.state.error == .unavailable, "transient error retains labeled cache")
         await source.fail(with: .loginRequired)
         model.refresh(force: true)
-        try await Task.sleep(nanoseconds: 60_000_000)
+        try await waitUntil("auth failure completes") { model.state.error == .loginRequired && !model.state.isRefreshing }
         expect(model.state.snapshot == nil && model.state.error == .loginRequired, "auth failure clears cached account quota")
         model.setActive(false, for: .dashboard)
 
         let tickingSource = ControlledSource(snapshot: snapshot)
         let ticking = CodexQuotaMonitor(fetch: { try await tickingSource.fetch() }, interval: { 0.06 })
         ticking.setActive(true, for: .dashboard)
-        try await Task.sleep(nanoseconds: 230_000_000)
+        // Wait for actual completed polls, not a wall-clock assumption about CI scheduling.
+        try await waitUntil("automatic polling completes twice") {
+            let count = await tickingSource.count
+            return count >= 2 && !ticking.state.isRefreshing
+        }
         ticking.setActive(false, for: .dashboard)
         let stoppedCount = await tickingSource.count
         try await Task.sleep(nanoseconds: 200_000_000)
